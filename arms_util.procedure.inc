@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Drupal variable containgin a list of previously generated procedures
+ * Drupal variable containing a list of previously generated procedures
  */
 define(ARMS_UTIL_PROCEDURE_VAR, 'arms_util_procedures');
 

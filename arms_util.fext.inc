@@ -14,7 +14,7 @@
  * field on the local site which should be extended.
  *
  * The idea for this module has gone through a few revisions. For my
- * (Tim) piece of mind, I want to record the evolution. However, I
+ * (Tim) peace of mind, I want to record the evolution. However, I
  * don't know if these notes will mean much to anyone else.
  *
  * - We need the ability to activate certain hooks/callbacks for
@@ -75,9 +75,9 @@
  *
  * @return array of definitions; each key is a Drupal configuration variable; each value is an array with keys:
  * - '#file': String; a file to include before invoking callbacks
- * - '#include': Array; similar to '#file', but the data is passed to module_load_include instead of require_ocne
+ * - '#include': Array; similar to '#file', but the data is passed to module_load_include instead of require_once
  * - '#default_field': A default field name (optional)
- * - '#options': Array of callbacks; each callback may alter list of options for dropdown field; function($data), where data has 'fext', 'options', and 'detailedFormat'; see hook_civicrm_customFieldOptions
+ * - '#options': Array of callbacks; each callback may alter the list of options for a dropdown field; function($data), where data has 'fext', 'options', and 'detailedFormat'; see hook_civicrm_customFieldOptions
  * - '#validate': Array of callbacks; each callback may return an error message; function($data), where data has 'fext', 'form', 'formName', 'elementName', 'contactId', 'fields', 'files', 'value', 'error' [mutable]
  * - '#buildElement': Array of callbacks; each callback may modify the form element; function($data), where data has 'fext', 'form', 'formName', 'elementName', 'contactId'
  * - '#display': Array of callbacks; each callback may alter the display value of a custom data field; function($data), where data has 'fext', 'value', 'display', and 'options'; see CRM_Core_BAO_CustomField::getDisplayValue and hook_hack_customFieldValue_alter; do not set 'display' to markup -- this only works with some views
