@@ -1,0 +1,31 @@
+<?php
+
+class ArmsUtilActivityStatusTestCase extends DrupalTestCase {
+
+  function get_info() {
+    return array(
+      'name' => t('ARMS Util Activity Status Tests'),
+      'desc' => 'Test functions related to activity status',
+      'group' => 'ARMS'
+    );
+  }
+  
+  function setUp() {
+  }
+
+  function testGetActivityStatuses() {
+  
+    $statuses = arms_util_activity_statuses();
+    $this->assertTrue(is_array($statuses));
+    $this->assertTrue(count($statuses));
+  }
+  
+  function testCreateActivityStatus() {
+  
+    $testName = 'testy';
+    
+    arms_util_activity_status_create($testName);
+    $statuses = arms_util_activity_statuses();
+    $this->assertFalse(empty($statuses[$testName]));
+  }
+}

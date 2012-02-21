@@ -1,0 +1,1782 @@
+<?php
+/*
+ * ARMS Utility Module
+ * 
+ * Collection of utility methods used by this and other ARMS Drupal modules.
+ */
+
+/** The files directory for the module */
+define(ARMS_UTIL_FILES_DIR, 'arms_util');
+
+/** The Custom Data Meta Data file name */
+define(ARMS_UTIL_CDMD_FILE, 'custom_data_meta_data.ser');
+
+// --- different logging services ---
+
+define(ARMS_UTIL_LOG_WATCHDOG, 1);
+define(ARMS_UTIL_LOG_AUTOCONFIG, 2);
+define(ARMS_UTIL_LOG_TMPFILE, 4);
+define(ARMS_UTIL_LOG_SET_MESSAGE, 8);
+
+define(ARMS_UTIL_XT_AUTOKEY, '!!auto!!');
+
+/**
+ * hook_arms_clear
+ *
+ * Called whenever general settings and caches are flushed.
+ */
+function hook_arms_clear() {
+}
+
+/**
+ * hook_arms_trigger
+ *
+ * Return a list of trigger specifications; each specification is an array with keys:
+ *  - table: array of string; one or more SQL table names
+ *  - event: array of string; one or more of 'insert', 'update', 'delete'
+ *  - when: array of string; 'before' and/or 'after'
+ *  - declare: array(varName=>varType); list of local SQL variables
+ *  - sql: string, sql code to execute; use "NEW.column", "OLD.column", or "{ACTIVE}.column" (for insert/update, "{ACTIVE}" means "NEW"; for delete, it means "OLD")
+ */
+function hook_arms_trigger() {
+}
+
+/**
+ * hook_arms_procedure
+ *
+ * Return a list of procedure specifications; each specification is an array with keys:
+ *  - full_sql: string, full SQL defintion of the stored procedure; e.g. "CREATE PROCEDURE foo() SELECT 'foo';"
+ *
+ * @return array(procedureName => array(...))
+ */
+function hook_arms_procedure() {
+}
+
+/**
+ * Implementation of hook_init
+ */
+function arms_util_init() {
+  arms_util_add_classes('arms_util');
+}
+
+/**
+ * Implementation of hook_civicrm_xmlMenu
+ *
+ * Scan all modules for files matching these patterns:
+ *  - mymodule/mymodule.menu.xml
+ *  - mymodule/ARMS/%/xml/Menu/%.xml
+ */
+function arms_util_civicrm_xmlMenu(&$files) {
+  foreach (module_list() as $module) {
+    $file = drupal_get_path('module', $module) . '/' . $module . '.menu.xml';
+    if (file_exists($file)) {
+      $files[] = $file;
+    }
+    
+    $nested_files = array_merge(
+      glob(drupal_get_path('module', $module) . '/ARMS/*/xml/Menu/*.xml'),
+      glob(drupal_get_path('module', $module) . '/EXMPL/*/xml/Menu/*.xml')
+    );
+    foreach ($nested_files as $file) {
+      $files[] = $file;
+    }
+  }
+}
+
+/**
+ * Implementation of hook_civicrm_navigationMenu
+ */
+function arms_util_civicrm_navigationMenu(&$params) {
+  arms_util_include_api('menu');
+  return _arms_util_menu_civicrm_navigationMenu(&$params);
+}
+
+/**
+ * Implementation of hook_menu
+ */
+function arms_util_menu() {
+  $items = array();
+  $items['admin/arms'] = array(
+    'title' => 'ARMS',
+    'description' => 'Administer ARMS / Civi data model.', 
+    'file' => 'arms_util.admin.inc',
+    'page callback' => 'arms_util_admin_page',
+    'access arguments' => array('access administration pages'),
+  );
+  $items['admin/arms/cx'] = array(
+    'title' => 'CX',
+    'description' => 'Transfer custom data groups and profiles', 
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'arms_util.cxpage.inc',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('arms_util_cxpage_export'),
+    'access arguments' => array('administer CiviCRM'),
+  );
+  $items['admin/arms/cx/export'] = array(
+    'title' => 'Export',
+    'weight' => -5,
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+  );
+  $items['admin/arms/cx/import'] = array(
+    'title' => 'Import',
+    'type' => MENU_LOCAL_TASK,
+    'file' => 'arms_util.cxpage.inc',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('arms_util_cxpage_import'),
+    'access arguments' => array('administer CiviCRM'),
+  );
+  $items['admin/arms/field/%'] = array(
+    'title' => 'Advanced field settings',
+    'description' => 'Advanced field settings', 
+    'type' => MENU_CALLBACK,
+    'file' => 'arms_util.field.inc',
+    'page callback' => 'drupal_get_form',
+    'page arguments'   => array('arms_util_field_form', 3),
+    'access arguments' => array('access administration pages'),
+  );
+  $items['admin/arms/field/%/values'] = array(
+    'title' => 'Review values',
+    'description' => 'Review values', 
+    'type' => MENU_CALLBACK,
+    'file' => 'arms_util.field.inc',
+    'page callback' => 'drupal_get_form',
+    'page arguments'   => array('arms_util_field_review_form', 3),
+    'access arguments' => array('access administration pages'),
+  );
+  return $items;
+}
+
+/**
+ * Implementation of hook_civicrm_buildForm
+ */
+function arms_util_civicrm_buildForm($formName, &$form) {
+  arms_util_include_api('fext');
+  arms_util_fext_civicrm_buildForm($formName, &$form);
+  switch ($formName) {
+    case 'CRM_Admin_Form_Setting_Smtp':
+      if (FALSE != variable_get('civicrm_mailingPreferences', FALSE)) {
+        drupal_set_message(t('Outbound email settings may be overriden or ignored based on system policy.'), 'warning');
+      }
+      break;
+    default:
+  }
+}
+
+/**
+ * Implementation of hook_civicrm_validate
+ */
+function arms_util_civicrm_validate($formName, &$fields, &$files, &$form) {
+  arms_util_include_api('fext');
+  return arms_util_fext_civicrm_validate($formName, &$fields, &$files, &$form);
+}
+
+/**
+ * Implementation of hook_civicrm_pre
+ */
+function arms_util_civicrm_pre($op, $objectName, $objectId, &$objectRef) {
+  if ($op == 'create') {
+    // Fix problem with defaults -- https://secure.bentonconsult.com/projects/arms/ticket/341
+    arms_util_include_api('cdmd');
+    _arms_util_cdmd_civicrm_pre($op, $objectName, $objectId, $objectRef);
+  }
+}
+
+/**
+ * Implementation of hook_civicrm_post
+ */
+function arms_util_civicrm_post($op, $objectName, $objectId, &$objectRef) {
+  switch ($objectName) {
+    case 'Activity':
+    case 'Case':
+      arms_util_include_api('case');
+      _arms_util_case_civicrm_post($op, $objectName, $objectId, $objectRef);
+      break;
+    default:
+  }
+}
+
+/**
+ * Implementation of hook_civicrm_postProcess
+ */
+function arms_util_civicrm_postProcess($formName, &$form) {
+  // Automatically update CDMD cache if the user is manipulating custom data
+  switch ($formName) {
+    case 'CRM_Custom_Form_Group':
+    case 'CRM_Custom_Form_Field':
+    case 'CRM_Custom_Form_DeleteGroup':
+    case 'CRM_Custom_Form_DeleteField':
+      drupal_get_schema(FALSE, TRUE);
+      break;
+    default:
+  }
+}
+
+/**
+ * Implementation of hook_civicrm_pageRun
+ */
+function arms_util_civicrm_pageRun(&$page) {
+  // Automatically update CDMD cache if the user is manipulating custom data
+  if ($page instanceof CRM_Custom_Page_Field) {
+    if (!empty($_REQUEST['id'])) {
+      drupal_get_schema(FALSE, TRUE);
+    }
+  }
+  if ($page instanceof CRM_Custom_Page_Group) {
+    if (!empty($_REQUEST['id']) && ($_REQUEST['action'] == 'enable' || $_REQUEST['action'] == 'disable')) {
+      drupal_get_schema(FALSE, TRUE);
+    }
+  }
+}
+
+
+/**
+ * Implementation of hook_civicrm_customFieldOptions
+ */
+function arms_util_civicrm_customFieldOptions($field_id, &$options, $detailed_format = FALSE) {
+  arms_util_include_api('fext');
+  arms_util_fext_civicrm_customFieldOptions($field_id, &$options, $detailed_format);
+}
+
+/**
+ * Implementation of hook_civicrm_custom
+ */
+function arms_util_civicrm_custom($op, $group_id, $entity_id, &$params) {
+  arms_util_include_api('fext');
+  arms_util_fext_civicrm_custom($op, $group_id, $entity_id, &$params);
+}
+
+/**
+ * Implementation of hook_hack_customFieldValue_alter
+ *
+ * @see https://secure.bentonconsult.com/projects/arms/ticket/496
+ * @see CRM_Core_BAO_CustomField::getDisplayValue
+ */
+function arms_util_hack_customFieldValue_alter(&$data) {
+  arms_util_include_api('fext');
+  // arms_util_log_dbg($data);
+  arms_util_fext_hack_customFieldValue_alter($data);
+}
+
+/**
+ * Implementation of hook_hack_mailingPreferences_alter
+ */
+function arms_util_hack_mailingPreferences_alter(&$mailingPref) {
+  $overrides = variable_get('civicrm_mailingPreferences', FALSE);
+  if (is_array($mailingPref) && is_array($overrides)) {
+    foreach ($overrides as $key => $value) {
+      switch ($key) {
+        case 'smtpPassword':
+          if (version_compare(CRM_Utils_System::version(), '3.4.0') >= 0) {
+            require_once 'CRM/Utils/Crypt.php';
+            $value = CRM_Utils_Crypt::encrypt($value);
+          }
+          $mailingPref[$key] = $value;
+          break;
+        default:
+          $mailingPref[$key] = $value;
+          break;
+      }
+    }
+  }
+}
+
+/**
+ * Internal utility function used to read the custom data meta data configuration.
+ * 
+ * @return array associative array of custom data meta data config
+ */
+function _arms_util_read_custom_data_config($fresh = FALSE) {
+	global $_arms_util_cdmd_config;
+	
+	if ($fresh || !is_array($_arms_util_cdmd_config)) {
+		$path = file_directory_path() . '/' . ARMS_UTIL_FILES_DIR . '/' . ARMS_UTIL_CDMD_FILE;
+		if (!file_exists($path)) {
+			watchdog('arms_util',
+					'Unable to read ARMS custom data meta data configuration <code>@path</code> ',
+					array('@path' => $path),
+					WATCHDOG_ERROR);
+			$_arms_util_cdmd_config = array();
+		}
+		else {
+			$_arms_util_cdmd_config = unserialize(file_get_contents($path));
+		}
+	}
+	
+	return $_arms_util_cdmd_config;
+}
+
+/**
+ * Extend the "Clear cache" function to reset some of the Drupal/Civi integration data.
+ */
+function arms_util_form_alter(&$form, $form_state, $form_id) {
+  if ($form_id == 'system_performance_settings') {
+    $form['clear_cache']['clear']['#submit'][]= 'arms_util_system_performance_settings_submit';
+  }
+  else if ($form_id == 'system_modules') {
+     $form['#submit'][] = 'arms_util_system_modules_submit';
+  }
+}
+
+/**
+ * (Submit callback) Extend the "Clear cache" function to reset some of the Drupal/Civi integration data.
+ */
+function arms_util_system_performance_settings_submit($form, &$form_state) {
+  ## Force refresh of the schema, including the CustomData<->Drupal mappings
+  drupal_get_schema(FALSE, TRUE);
+  module_invoke_all('arms_clear');
+}
+
+/**
+ * (Submit callback) Update Drupal/Civi integration whenever module config changes
+ */
+function arms_util_system_modules_submit($form, &$form_state) {
+  module_invoke_all('arms_clear');
+}
+
+/**
+ * Implementation of hook_arms_clear
+ */
+function arms_util_arms_clear() {
+  arms_util_include_api('menu');
+  arms_util_menu_rebuild();
+  
+  arms_util_include_api('cdmd');
+  arms_util_cdmd_clearcivi();
+
+  arms_util_include_api('fext');
+  arms_util_fext_definitions(TRUE);
+  arms_util_fext_index_clear();
+
+  arms_util_write_custom_data_meta_data(ARMS_UTIL_LOG_WATCHDOG);
+  $config =& _arms_util_read_custom_data_config(TRUE);
+
+  if (function_exists('services_get_all')) {
+    services_get_all(TRUE, TRUE);
+  }
+  
+  arms_util_include_api('trigger');
+  arms_util_trigger_rebuild();
+  
+  arms_util_include_api('procedure');
+  arms_util_procedure_rebuild();
+  
+  if (module_exists('adminrole')) {
+    adminrole_update_perms();
+  }
+}
+
+function arms_util_write_custom_data_meta_data($logger = ARMS_UTIL_LOG_WATCHDOG) {
+	arms_util_include_api('cdmd');
+	return arms_util_cdmd_update(
+		file_directory_path() . '/' . ARMS_UTIL_FILES_DIR,
+		ARMS_UTIL_CDMD_FILE,
+		$logger);
+}
+
+/**
+ * Internal utility function used to resolve a custom data group name
+ * to its ID.
+ * 
+ * @param string $groupName custom data group name to resolve
+ * 
+ * @return int ID of custom data group, or -1 if not found
+ */
+function _arms_util_resolve_custom_data_group_id($groupName) {
+	$groupId = -1;
+	$config = _arms_util_read_custom_data_config();
+	if (array_key_exists($groupName, $config)) {
+		$groupId = $config[$groupName]['id'];
+	}
+	return $groupId;
+}
+
+/**
+ * Look up the definition of a custom data field
+ * 
+ * @param string $groupName custom data group name for field
+ * @param string $fieldName custom data field name to resolve
+ * 
+ * @return an array representing the custom data field, or null if not found
+ */
+function arms_util_resolve_custom_data_field($groupName, $fieldName) {
+	$config =& _arms_util_read_custom_data_config();
+	if (array_key_exists($groupName, $config)) {
+		if (is_array($config[$groupName]['fields']) && array_key_exists($fieldName, $config[$groupName]['fields'])) {
+			return $config[$groupName]['fields'][$fieldName];
+		}
+	}
+	return NULL;
+}
+
+/**
+ * Internal utility function used to resolve a custom data field name
+ * to its ID.
+ * 
+ * @param string $groupName custom data group name for field
+ * @param string $fieldName custom data field name to resolve
+ * 
+ * @return int ID of custom data field, or -1 if not found
+ */
+function _arms_util_resolve_custom_data_field_id($groupName, $fieldName) {
+	$fieldId = -1;
+	$config = _arms_util_read_custom_data_config();
+	if (array_key_exists($groupName, $config)) {
+		if (is_array($config[$groupName]['fields']) && array_key_exists($fieldName, $config[$groupName]['fields'])) {
+			$fieldId = $config[$groupName]['fields'][$fieldName]['id'];
+		}
+	}
+	return $fieldId;
+}
+
+/**
+ * Given a select/checkbox/radio/multi-select custom field, determine the list of
+ * values that are acceptable.
+ *
+ * @return Array of objects with properties "id", "label", and "value"
+ */
+function _arms_util_resolve_custom_data_field_options($fieldId) {
+	static $options;
+	if (!is_array($options)) { 
+		$options = array();
+	}
+	if (!isset($options[$fieldId])) {
+		civicrm_initialize();
+		$optionsQuery = db_query('select cov.id as id, cov.label as label, cov.value as value'
+			.' from {civicrm_custom_field} ccf'
+			.' inner join {civicrm_option_value} cov on cov.option_group_id = ccf.option_group_id'
+			.' where cov.is_active = 1 and ccf.id = %d',
+			$fieldId);
+		$options[$fieldId] = array();
+		while ($option = db_fetch_object($optionsQuery)) {
+			$options[$fieldId][$option->value] = $option;
+		}
+		require_once 'CRM/Utils/Hook.php';
+		CRM_Utils_Hook::customFieldOptions($fieldId, $options[$fieldId], TRUE);
+	}
+	return $options[$fieldId];
+}
+
+/**
+ * Retrieves the value of a custom data field.
+ * 
+ * @param int    $entityId  ID of entity to which data field belongs
+ * @param string $groupName name of custom data group
+ * @param string $fieldName name of custom data field
+ * 
+ * @return mixed custom data field value, or false if not found
+ */
+function arms_util_get_custom_field_value($entityId, $groupName, $fieldName) {
+	if (empty($entityId)) {
+		return false;
+	}
+
+	$groupId = _arms_util_resolve_custom_data_group_id($groupName);
+	$fieldId = _arms_util_resolve_custom_data_field_id($groupName, $fieldName);
+	
+	if ($groupId > -1 && $fieldId > -1) {
+			
+		$tableName = CRM_Core_DAO::getFieldValue(
+				'CRM_Core_DAO_CustomGroup',
+				$groupId,
+				'table_name'
+		);
+		
+		$columnName = CRM_Core_DAO::getFieldValue(
+				'CRM_Core_DAO_CustomField',
+				$fieldId,
+				'column_name'
+		);
+		
+		$sql = "select $columnName " .
+			   "from $tableName " .
+			   "where entity_id=$entityId ";
+		$fieldValue = CRM_Core_DAO::singleValueQuery($sql, CRM_Core_DAO::$_nullArray);
+	}
+	else {
+		$fieldValue = FALSE;
+	}
+	
+	return $fieldValue;
+}
+
+/**
+ * Sets the value of a custom data field.
+ * 
+ * @param int    $entityId   ID of entity to which data field belongs
+ * @param string $groupName  name of custom data group
+ * @param string $fieldName  name of custom data field
+ * @param string $fieldValue value to set
+ * 
+ * @return boolean true on success, false on failure
+ */
+function arms_util_set_custom_field_value($entityId, $groupName, $fieldName, $fieldValue) {
+	$result = FALSE;
+	
+	$groupId = is_numeric($groupName) ? $groupName : _arms_util_resolve_custom_data_group_id($groupName);
+	$fieldId = is_numeric($fieldName) ? $fieldName : _arms_util_resolve_custom_data_field_id($groupName, $fieldName);
+	
+	if ($groupId > -1 && $fieldId > -1) {
+			
+		$tableName = CRM_Core_DAO::getFieldValue(
+				'CRM_Core_DAO_CustomGroup',
+				$groupId,
+				'table_name'
+		);
+		
+		$columnName = CRM_Core_DAO::getFieldValue(
+				'CRM_Core_DAO_CustomField',
+				$fieldId,
+				'column_name'
+		);
+		
+		$sql = "insert into $tableName set " .
+			   "$columnName='$fieldValue', " .
+			   "entity_id=$entityId " .
+			   "on duplicate key update $columnName='$fieldValue'";
+		CRM_Core_DAO::executeQuery($sql, CRM_Core_DAO::$_nullArray);
+		
+		$result = TRUE;
+	}
+	
+	return $result;
+}
+
+/**
+ * Convert a SQL query from site-independent notation to site-specific
+ * notation, e.g. replace standard table and column names with real table
+ * and column names 
+ *
+ * @param $sql SQL query with custom groups denoated as "{g:mygroup}" and custom fields as "{f:myfield}"
+ * @return The same SQL query, with {g:*} and {f:*} replaced by valid table and column names in the current DB, or null
+ */
+function arms_util_custom_sql($sql) {
+  $config =& _arms_util_read_custom_data_config();
+  preg_match_all('/\{g:([a-zA-Z0-9_]+)\}/', $sql, $matches);
+  foreach ($matches[1] as $table_name) {
+    if (!is_array($config[$table_name])) {
+      continue;
+    }
+    $sql = strtr($sql, array(
+      '{g:' . $table_name .'}' => $config[$table_name]['table_name']
+      ));
+    foreach ($config[$table_name]['fields'] as $field_name => $field) {
+      $sql = strtr($sql, array(
+        '{f:' . $field_name . '}' => $field['column_name']
+        ));
+    }
+  }
+  if (strpos($sql, "{f:") !== FALSE || strpos($sql, "{g:") !== FALSE) {
+    $sqlout = (user_access('administer CiviCRM')) ? '(' . $sql . ')' : '';
+    drupal_set_message(t('Failed to construct proper query. @sqlout', array('@sqlout' => $sqlout)));
+    return FALSE;
+  }
+  return $sql;
+}
+
+/**
+ * Read an array which is keyed by site-independent field names and return an
+ * array whose values are keyed by site-specific field names
+ *
+ * @param $customGroupName Site-independent custom group name
+ * @param $arr The array which should be ocnverted
+ * @param $entity_id_key The array-key representing the ID of the entity which is being customized (e.g. contact or activity ID). This field is not normally mapped by cdmd.
+ */
+function arms_util_localize_array($customGroupName, &$arr, $entity_id_key = FALSE) {
+  $config =& _arms_util_read_custom_data_config();
+  $fields = $config[$customGroupName]['fields'];
+  $local_arr = array();
+  foreach ($arr as $key => $value) {
+    if ($key == 'id' || $key == 'entity_id') {
+      $newKey = $key;
+    }
+    else {
+      $newKey = $fields[$key]['column_name'];
+    }
+    $local_arr[$newKey] = $value;
+  }
+  return $local_arr;
+}
+
+/**
+ * Analog of drupal_write_record which writes a custom data record
+ */
+function arms_util_custom_write_record($customGroupName, &$arr, $update = array()) {
+  $config =& _arms_util_read_custom_data_config();
+  $localized = (object) arms_util_localize_array($customGroupName, $arr);
+/*  dpm(array(
+    'arms_util_custom_write_record' => array($customGroupName, $arr, $update),
+    'drupal_write_record' => array($config[$customGroupName]['table_name'], $localized, $update)
+  )); */
+  $result = drupal_write_record($config[$customGroupName]['table_name'], $localized, $update);
+#  $arr = arms_util_delocalize_array($localized);
+  return $result;
+}
+
+/**
+ * hook_civicrm_tokens 
+ *
+ * Optional -- if arms_util and civicrm are both installed, then
+ * Civi will use this. However, this does not add a new
+ * dependency on Civi.
+ */
+function arms_util_civicrm_tokens(&$tokens) {
+  $tokens['arms'] = array('arms.https_domain', 'arms.http_domain');
+}
+
+/** 
+ * hook_civicrm_tokens 
+ *
+ * Optional -- if arms_util and civicrm are both installed, then
+ * Civi will use this. However, this does not add a new
+ * dependency on Civi.
+ *
+ * This was written to meet the spec, but the spec isn't entirely clear about
+ * the content of $details, and this hasn't been tested against any official
+ * Civi code -- it's only been tested against a patched Civi 2.1.
+ */
+function arms_util_civicrm_tokenValues(&$details, &$contactIDs) {
+  if (is_numeric($contactIDs)) {
+    $tmpContactIDs = array($contactIDs);
+  } else if (is_array($contactIDs)) {
+    $tmpContactIDs =& $contactIDs;
+  } else {
+    return;
+  }
+  $https = variable_get('arms_https_domain', $_SERVER['HTTP_HOST']);
+  $http =  variable_get('arms_http_domain', $https);
+  foreach ($tmpContactIDs as $contactID) {
+    if ($details[$contactID]['contact_id'] == $contactID) {
+      $details[$contactID]['arms.https_domain'] = $https;
+      $details[$contactID]['arms.http_domain'] = $http;
+    }
+  }
+}
+
+/**
+ * An abstraction for the various logging mechanisms available to us.
+ *
+ * @param $message Data which should be logged
+ * @param $variables (Optional) If $message is a string, then the given variables will be substituted (like in t($message,$variables)
+ */
+function arms_util_log($logger, $severity, $message, $variables = array(), $type = 'arms_util') {
+  if (is_array($message) || is_object($message)) {
+    $message = print_r($message, TRUE);
+    $variables = array(); // no accidental variable substitution
+  }
+  
+  if ($logger & ARMS_UTIL_LOG_WATCHDOG) {
+    watchdog($type, $message, $variables, $severity);
+  }
+  if ($logger & ARMS_UTIL_LOG_AUTOCONFIG) {
+    $severityMap = array(
+      WATCHDOG_EMERG => 'error',
+      WATCHDOG_ALERT => 'error',
+      WATCHDOG_CRITICAL=> 'error',
+      WATCHDOG_ERROR => 'error',
+      WATCHDOG_WARNING => 'warning',
+      WATCHDOG_NOTICE => 'notice',
+      WATCHDOG_INFO => 'notice',
+    );
+    if (isset($severityMap[$severity])) {
+      autoconfig_log($severityMap[$severity], t($message, $variables));
+    }
+  }
+  if ($logger & ARMS_UTIL_LOG_TMPFILE) {
+    $severities = watchdog_severity_levels();
+    $file = '/tmp/arms_util.'.posix_getuid().'.log';
+    if ( (!file_exists($file)) || (is_file($file) && fileowner($file) == posix_getuid())) {
+      file_put_contents($file, $severities[$severity] . ' ' . t($message, $variables) ."\n", FILE_APPEND);
+    }
+  }
+  if ($logger & ARMS_UTIL_LOG_SET_MESSAGE) {
+    $severityMap = array(
+      WATCHDOG_EMERG => 'error',
+      WATCHDOG_ALERT => 'error',
+      WATCHDOG_CRITICAL=> 'error',
+      WATCHDOG_ERROR => 'error',
+      WATCHDOG_WARNING => 'warning',
+      WATCHDOG_NOTICE => 'status',
+      WATCHDOG_INFO => 'status',
+    );
+    if (isset($severityMap[$severity])) {
+      drupal_set_message(t($message, $variables), $severityMap[$severity]);
+    }
+  }
+}
+
+/**
+ * Dump all parameters to a temporary debugging file
+ */
+function arms_util_log_dbg() {
+  $args = func_get_args();
+  array_unshift($args, date('Y-m-d H:i:s'));
+  arms_util_log(ARMS_UTIL_LOG_TMPFILE, WATCHDOG_INFO, $args);
+}
+
+/**
+ * Dump all parameters to a temporary debugging file
+ */
+function arms_util_log_sql() {
+  $args = func_get_args();
+  
+  $data = array();
+  $q = call_user_func_array('db_query', $args);
+  while ($r = db_fetch_array($q)) {
+    $data[] = $r;
+  }
+  
+  $log = array(
+    'ts' => date('Y-m-d H:i:s'),
+    'query' => $args,
+    'result' => $data,
+  );
+  arms_util_log(ARMS_UTIL_LOG_TMPFILE, WATCHDOG_INFO, $log);
+}
+
+/**
+ * Load an extra set of API calls / utility functions.
+ *
+ * Valid inputs: 'option', 'cdmd'
+ */
+function arms_util_include_api() {
+  foreach (func_get_args() as $include) {
+    switch($include) {
+      // white list
+      case 'array':
+      case 'activity':
+      case 'option':
+      case 'case':
+      case 'custom_search':
+      case 'cdmd':
+      case 'cx':
+      case 'date':
+      case 'fext':
+      case 'height':
+      case 'location':
+      case 'contribution':
+      case 'mailing':
+      case 'menu':
+      case 'nq':
+      case 'procedure':
+      case 'query':
+      case 'safe_file':
+      case 'thinapi':
+      case 'time':
+      case 'trigger':
+        module_load_include($include . '.inc', 'arms_util');
+        break;
+      // unrecognized
+      default:
+        arms_util_log(ARMS_UTIL_LOG_WATCHDOG, WATCHDOG_ERROR, 'Failed to include ARMS API [@file]', 
+          array('@file' => $include));
+    };
+  }
+}
+
+/**
+ * Depreacated; see arms_util_array_collect
+ */
+function arms_util_collect_properties(&$collection, $property) {
+  arms_util_include_api('array');
+  return arms_util_array_collect($collection, $property);
+}
+
+/**
+ * Configure CiviCRM to load classes defined by the given module
+ */
+function arms_util_add_classes($module) {
+//  static $included;
+//  if (!$included[$module]) {
+    $path = drupal_get_path('module', $module);
+    set_include_path(get_include_path() . PATH_SEPARATOR . $path);
+//    $included[$module] = TRUE;
+//  }
+}
+
+/**
+ * Configure CiviCRM to load templates defined by the given module
+ */
+function arms_util_add_templates($module) {
+  require_once 'CRM/Core/Smarty.php';
+  $smarty = CRM_Core_Smarty::singleton();
+  $path = drupal_get_path('module', $module);
+  $smarty->template_dir []= $path;
+}
+
+/**
+ * Lookup the numeric ID of an activity type by activity name. If the
+ * associated activity type ID is not found, -1 is returned.
+ * 
+ * @param string $name immutable name of activity type
+ * 
+ * @return numeric the associated activity type id, or -1 if not found
+ */
+function arms_util_activity_type($name) {
+  $activityTypeId = -1;
+  $map = &arms_util_activity_types();
+  if (array_key_exists($name, $map)) {
+  	$activityTypeId = $map[$name];
+  }
+  return $activityTypeId;
+}
+
+/**
+ * Lookup the stable name of an activity type by the activity
+ * type's numeric ID. If none is available, NULL is returned.
+ */
+function arms_util_activity_type_by_id($id) {
+  // This is a bit ugly, but it satisfies two criteria:
+  // 1. Searching by activity ID is nearly constant time
+  // 2. arms_util_activity_type_by_id(arms_util_activity_type($x)) will always return $x, as long as $x is valid, and regardless of when/if arms_util_activity_types is refreshed
+  global $_arms_util_activity_types;
+  if (!is_array($_arms_util_activity_types)) {
+    arms_util_activity_types();
+  }
+  return $_arms_util_activity_types[$id];
+}
+
+/**
+ * Lookup the available types.
+ * 
+ * @return array map from activity names to activity type IDs
+ */
+function arms_util_activity_types($fresh = FALSE) {
+  static $map = FALSE;
+  global $_arms_util_activity_types;
+  if ($fresh || $map == FALSE) {
+  	$map = array();
+  	$_arms_util_activity_types = array();
+  	$sql = 'select v.name, v.label, v.value'
+		. ' from {civicrm_option_value} v'
+		. ' inner join {civicrm_option_group} g on v.option_group_id=g.id'
+		. ' where g.name=\'activity_type\'';
+    $q = db_query($sql);
+    while ($row = db_fetch_array($q)) {
+  	  $map[$row['name']] = $row['value'];
+  	  $_arms_util_activity_types[$row['value']] = $row['name'];
+    }
+  }
+  return $map;
+}
+
+function arms_util_activity_status($name) {     
+  $activityStatusId = -1;
+  $map = &arms_util_activity_statuses();
+  if (array_key_exists($name, $map)) {
+  	$activityStatusId = $map[$name];
+  }
+  return $activityStatusId;
+}
+
+/**
+ * Retrieve the status name given the status ID.
+ * 
+ * @param int $statusId ID of status to retrieve
+ * 
+ * @return mixed the status name string if found, boolean false if not
+ */
+function arms_util_activity_status_by_id($statusId) {
+  $statuses = arms_util_activity_statuses();
+  $label = false;
+  $statuses = array_flip($statuses);
+  if (array_key_exists($statusId, $statuses)) {
+    $label = $statuses[$statusId];
+  }
+  return $label;
+}
+
+function arms_util_activity_statuses($fresh = FALSE) {
+  static $map = FALSE;
+  if ($fresh || $map == FALSE) {
+    $map = array();
+    $sql = 'select v.name, v.label, v.value'
+      . ' from {civicrm_option_value} v'
+      . ' inner join {civicrm_option_group} g on v.option_group_id=g.id'
+      . ' where g.name=\'activity_status\'';
+    $q = db_query($sql);
+    while ($row = db_fetch_array($q)) {
+  	  $map[$row['name']] = $row['value'];
+    }    
+  }
+  return $map;
+}
+
+function arms_util_activity_status_create($name) {
+  civicrm_initialize();
+  require_once 'api/v2/Options.php';
+  arms_util_include_api('option');
+  
+  // get the activity status group id
+  $params = array('name' => 'activity_status');
+  $group = civicrm_option_group_find($params);
+ 
+  if (is_array($group) && count($group) > 0) {
+    $params = arms_util_option_value_next($group[0]);
+    $params['name'] = $name;
+    $params['label'] = $name;
+    $params['option_group_id'] = $group[0]['id'];
+    
+    $result = civicrm_option_value_create($params);
+
+    arms_util_activity_statuses(TRUE);
+  }
+}
+
+/**
+ * Retrieve the status value given the status name
+ *
+ * @param $name string
+ * @return mixed; int, or -1
+ */
+function arms_util_contribution_status($name) {     
+  $activityStatusId = -1;
+  $map = &arms_util_contribution_statuses();
+  if (array_key_exists($name, $map)) {
+  	$activityStatusId = $map[$name];
+  }
+  return $activityStatusId;
+}
+
+/**
+ * Retrieve the status name given the status ID.
+ * 
+ * @param int $statusId ID of status to retrieve
+ * 
+ * @return mixed the status name string if found, boolean false if not
+ */
+function arms_util_contribution_status_by_id($statusId) {
+  $statuses = arms_util_contribution_statuses();
+  $label = false;
+  $statuses = array_flip($statuses);
+  if (array_key_exists($statusId, $statuses)) {
+    $label = $statuses[$statusId];
+  }
+  return $label;
+}
+
+function arms_util_contribution_statuses($fresh = FALSE) {
+  static $map = FALSE;
+  if ($fresh || $map == FALSE) {
+    $map = array();
+    $sql = 'select v.name, v.label, v.value'
+      . ' from {civicrm_option_value} v'
+      . ' inner join {civicrm_option_group} g on v.option_group_id=g.id'
+      . ' where g.name=\'contribution_status\'';
+    $q = db_query($sql);
+    while ($row = db_fetch_array($q)) {
+  	  $map[$row['name']] = $row['value'];
+    }    
+  }
+  return $map;
+}
+
+/**
+ * Extract the value of a custom data field and convert the field's value to a
+ * normalized format. For instance, fields of type 'Select', 'Multi-Select',
+ * and 'CheckBox' will encode their values differently, but this function will
+ * produce a consistent encoding.
+ *
+ * Use this function if you business logic that needs to read information from a
+ * CiviCRM form -- but you can't predict the name or type or type of the field.
+ *
+ * Example:
+ *
+ * $parsed = arms_util_form_getValue(arms_util_field('foo:bar'), $civiFormValues);
+ * if (in_array('whiz', $parsed['values']) { ... business action ... }
+ *
+ * @param $customfield array, a custom-data field descriptor; see arms_util_field
+ * @param $formfields array; keys are POST'ed field names, and values are... whatever the hell Civi does
+ * @return FALSE, or an array with keys:
+ *   - key: the name of the form's field element that matched the customfield
+ *   - raw: the value of the form's field element, as encoded by Civi
+ *   - values: the value of the form's field element, in a normalized format; specifically, an array of strings
+ *   - single: the first (or only) value
+ */
+function arms_util_form_getValue($customfield, $formfields) {
+  if (!is_numeric($customfield['id'])) { return FALSE; }
+  $pat = '/^custom_' . $customfield['id'] . '(_-?[0-9]+)?$/';
+  
+  foreach ($formfields as $key => $raw) {
+    if (! preg_match($pat, $key)) {
+      continue;
+    }
+    
+    $norm = FALSE;
+    switch ($customfield['html_type']) {
+      case 'Text':
+      case 'Select':
+      case 'Radio':
+        $norm = array($raw);
+        break;
+      case 'CheckBox':
+        $norm = array();
+        foreach ($raw as $value => $enabled) {
+          if ($enabled) {
+            $norm[] = $value;
+          }
+        }
+        break;
+      case 'Multi-Select':
+        $norm = array_values($raw);
+        break;
+      default:
+        drupal_set_message(t('Error processing field, @label'), array(
+          '@label' => $customfield['label'],
+        ));
+        return FALSE;
+    }
+    return array('key' => $key, 'raw' => $raw, 'values' => $norm, 'single' => $norm[0]);
+  }
+  
+  return FALSE;
+}
+
+/**
+ * Lookup the definition of a field
+ *
+ * A field is identified by a string of the form "group:field" or
+ * an array of the form "array('group','field')"
+ *
+ * <code>
+ * $f1 = arms_util_field('mygroup:myfield');
+ * // or
+ * $f1 = arms_util_field(array('mygroup', 'myfield'));
+ * </code>
+ *
+ * @return array, or NULL
+ */
+function arms_util_field() {
+  $args =& func_get_args();
+  if (is_string($args[0])) {
+    list($groupName, $fieldName) = preg_split("/ *: */", $args[0]);
+  } else if (is_array($args[0])) {
+    $groupName = $args[0][0];
+    $fieldName = $args[0][1];
+  }
+  if ($groupName == 'core') {
+    return array(
+      '_full_name' => 'core:' . $fieldName,
+      '_group_name' => 'core',
+      '_name' => $fieldName,
+      '_param' => $fieldName,
+      '_is_active' => 1,
+      'label' => ucwords(preg_replace('/_/', ' ', $fieldName)),
+    );
+  } else {
+    return arms_util_resolve_custom_data_field($groupName, $fieldName);
+  }
+}
+
+/**
+ * Determine the CiviCRM param for the given field
+ */
+function arms_util_field_param($fieldSpec) {
+  $field =& arms_util_field($fieldSpec);
+  return $field['_param'];
+}
+
+/**
+ * Determine the label for the given field
+ */
+function arms_util_field_label($fieldSpec) {
+  $field =& arms_util_field($fieldSpec);
+  return $field['label'];
+}
+
+/**
+ * Format the value of a field for display
+ *
+ * The Civi method calls for loading OptionValues, formatting fields, etc.,
+ * use some unintuitive contracts, although they may enable slightly better
+ * performance (e.g. load all OptionValues in one query). Still, I'd rather
+ * keep the API simple and add more advanced cache management/pre-fetch
+ * when appropriate.
+ *
+ * @param $field array-encoded CustomField
+ * @param $value A raw value form a cell in a database row
+ */
+function arms_util_field_format($field, $value, $fresh = FALSE) {
+  static $cache = array();
+  if ($fresh || !isset($cache[$field['id']])) {
+
+    require_once 'CRM/Core/BAO/CustomQuery.php';
+    $customQuery = new CRM_Core_BAO_CustomQuery( array($field['id'] => array()) );
+    $customQuery->query( );
+    $cache = $cache + $customQuery->_options;
+/*
+    if ($field['option_group_id']) {
+      require_once 'CRM/Core/BAO/CustomOption.php';
+      require_once 'CRM/Core/BAO/CustomField.php';
+      arms_util_include_api('array');
+      $options = arms_util_array_combine_properties(CRM_Core_BAO_CustomOption::getCustomOption($field['id']), 'value', 'label');
+    } else {
+      $options = array();
+    }
+    $options['attributes'] = $field;
+    $cache[$field['id']] = $options;
+*/
+    // arms_util_log_dbg($cache);
+  }
+  require_once 'CRM/Core/BAO/CustomField.php';
+  return CRM_Core_BAO_CustomField::getDisplayValue($value, $field['id'], $cache);
+}
+
+/**
+ * Look up a custom data field which matches the given param name.
+ * 
+ * @param $paramName CiviCRM API parameter, e.g. "custom_123" or "custom_123_456"
+ * @return The field record or NULL
+ */
+function arms_util_field_by_param($paramName, $fresh = FALSE) {
+  list($literal, $fieldId, $valueId) = explode('_', $paramName);
+  if ($literal == 'custom') {
+    return arms_util_field_by_id($fieldId, $fresh);
+  } else {
+    // generate a core pseudo-field
+    return arms_util_field(array('core', $paramName));
+  }
+}
+
+/**
+ * Look up a custom data field which matches the given ID#.
+ * 
+ * @param $paramName CiviCRM API parameter, e.g. "custom_123" or "custom_123_456"
+ * @return The field record or NULL
+ */
+function arms_util_field_by_id($fieldId, $fresh = FALSE) {
+  static $cache = FALSE;
+  if ($fresh || !$cache) {
+    $cache = array();
+  }
+    
+  if (isset($cache[$fieldId])) {
+    return $cache[$fieldId];
+  }
+    
+  $config =& _arms_util_read_custom_data_config();
+  foreach ($config as $group) {
+    foreach ($group['fields'] as &$field) {
+      if ($field['id'] == $fieldId) {
+        $cache[$fieldId] = $field;
+        return $field;
+      }
+    }
+  }
+    
+  $cache[$fieldId] = NULL;
+  return NULL;
+}
+
+/**
+ * Generate a flat list of fields
+ *
+ * @param $key string the identity key used for fields, e.g. 'id' or '_full_name' or '_param'
+ * @return array of field names, keyed by field ID
+ */
+function arms_util_field_list($id_key, $fresh = FALSE) {
+  static $cache = array();
+  if ($fresh || !isset($cache[$id_key])) {
+    $config = _arms_util_read_custom_data_config();
+    $fields = array();
+    $fields[''] = t('(None)');
+    foreach ($config as $group) {
+      if (empty($group['fields'])) { continue; }
+      foreach ($group['fields'] as $field) {
+        $fields[$field[$id_key]] = sprintf('%s: %s (#%d)', 
+          $group['title'], $field['label'], $field['id']
+        );
+      }
+    }
+    asort($fields);
+    $cache[$id_key] = $fields;
+  }
+  return $cache[$id_key];
+}
+
+/**
+ * Load the value of a custom field
+ */
+function arms_util_field_value_get($field, $contact_id) {
+  $sql = 'select ' . $field['column_name'] . ' from ' . $field['_table_name'] . ' where entity_id = %d';
+  $q = db_query($sql, $contact_id);
+  $result = db_result($q);
+  // arms_util_log_dbg(array($sql, $contact_id,'==>',$result));
+  return $result;
+}
+
+/**
+ * Load the value of a custom field
+ */
+function arms_util_field_value_set($field, $contact_id, $value) {
+  $id = db_result(db_query('select id from ' . $field['_table_name'] . ' where entity_id = %d', $contact_id));
+  if ($id) {
+    $sql = 'update ' . $field['_table_name'] . ' set ' . $field['column_name'] . ' = "%s" where entity_id = %d';
+  } else {
+    $sql = 'insert into ' . $field['_table_name'] . ' (' . $field['column_name'] . ',entity_id) values ("%s", %d)';
+  }
+  // arms_util_log_dbg(array($sql, $value, $contact_id));
+  return db_query($sql, $value, $contact_id);
+}
+
+/**
+ * Load values for the given fields into an existing cache of entity records.
+ *
+ * This function seems a little gratuitous -- e.g. you'd think we could accomplish the
+ * same result using a function like "civicrm_contact_search". Unfortunately, those
+ * functions don't allow bulk-loading by contact ID.
+ *
+ * @param $entities array of entities; keys are ID#'s and values are array-encoded entity records; field values will be merged into the entity records
+ * @param $fields array of field records (array-encoded, per CDMD)
+ * @param $fieldKeys array (optional) Map from field index to the field name that will be set in the output
+ * @return void
+ */
+function arms_util_field_load(&$entities, $fields, $fieldKeys = FALSE) {
+  if (empty($fields) || empty($entities)) {
+    return;
+  }
+  
+  $where = 'entity_id in (' . implode(',', array_keys($entities)) . ')';
+  
+  $tables = array();
+  foreach ($fields as $key => &$field) {
+    $tables[$field['_table_name']][$key] = $field;
+  }
+  foreach ($tables as $table_name => $table) {
+    $select = 'entity_id';
+    foreach ($table as $key => $field) {
+      if (is_string($fieldKeys[$key])) {
+        $select .= ', ' . $field['column_name'] . ' as ' . $fieldKeys[$key];
+      } else {
+        $select .= ', ' . $field['column_name'] . ' as ' . $field['_param'];
+      }
+    }
+    $sql = 'select ' . $select . ' from ' . $table_name . ' where ' . $where;
+    $q = db_query($sql);
+    while ($row = db_fetch_array($q)) {
+      $entity_id = $row['entity_id'];
+      unset($row['entity_id']);
+      $entities[$entity_id] = array_merge($entities[$entity_id], $row);
+    }
+  }
+}
+/**
+ * Form API callback
+ *
+ * Ensure that $element references a valid custom data group/field
+ *
+ * Usage:
+ * <pre>
+ * $form['field'] = array(
+ *   ...
+ *   '#pre_render'=> array('arms_util_field_warning'),
+ *   ...);
+ * </pre>
+ */
+function arms_util_field_warning(&$elements) {
+  if (empty($elements['#value'])) {
+    $fullNames = array();
+  } else {
+    $fullNames = preg_split("/[ \r\n]+/", $elements['#value']);
+  }
+  foreach ($fullNames as $fullName) {
+    list ($groupName, $fieldName) = explode(':', $fullName);
+    $field = arms_util_resolve_custom_data_field($groupName, $fieldName);
+    if (empty($field['id'])) {
+      drupal_set_message(t('Warning: #title refers to an <b>invalid</b> group or field [#spec]. To find valid groups and fields, see <a href="@url">Custom Data</a>.', array(
+        '#title' => $elements['#title'],
+        '#spec' => $elements['#value'],
+        '@url' => url('civicrm/admin/custom/group', array('query' => 'reset=1')),
+      )), 'warning');
+    /*
+    form_set_error($elements['#name'], 
+      t('#title refers to an invalid group or field', array(
+        '#title' => $elements['#title'],
+      ))
+    );
+    */
+    } elseif (! $field['_is_active']) {
+      drupal_set_message(t('Warning: #title refers to an <b>inactive</b> group or field [#spec]. To find valid groups and fields, see <a href="@url">Custom Data</a>.', array(
+        '#title' => $elements['#title'],
+        '#spec' => $elements['#value'],
+        '@url' => url('civicrm/admin/custom/group', array('query' => 'reset=1')),
+      )), 'warning');
+    }
+  }
+  return $elements;
+}
+
+/**
+ * Lookup the definition of a custom data group
+ *
+ * @param $groupName Site-independent name name
+ * @return group array or NULL
+ */
+function arms_util_group($groupName) {
+  $config =& _arms_util_read_custom_data_config();
+  if (array_key_exists($groupName, $config)) {
+    return $config[$groupName];
+  }
+  return NULL;
+}
+
+/**
+ * Lookup custom data groups by the types of data they extend
+ *
+ * @param $extends string, eg 'Activity', 'Contact', 'Individual'
+ * @return array(groupName => groupSpec)
+ */
+function arms_util_groups($extends, $fresh = FALSE) {
+  global $_arms_util_groups_cache; // array(extends => array(groupName => groupSpec))
+  if ($fresh || !is_array($_arms_util_groups_cache)) {
+    arms_util_include_api('array');
+    $_arms_util_groups_cache = arms_util_array_index(array('extends','_name'), _arms_util_read_custom_data_config());
+  }
+  return $_arms_util_groups_cache[$extends];
+}
+
+/**
+ * Implementation of hook_drush_command
+ */
+function arms_util_drush_command() {
+  // This may move when we upgrade to Drush 2
+  // It's very rare that we need to read/compile the arms_import code.
+  include_once ('arms_util.drush.inc');
+  include_once ('arms_util.cx.inc');
+  include_once ('arms_util.option.inc');
+  include_once ('arms_util.rawexpimp.inc');
+  $items['arms clear'] = array(
+    'callback' => '_arms_util_drush_clear',
+    'description' => 'Clear various Drupal, Civi, and ARMS caches',
+  );
+  ## Hack; possibly obsoleted in drush 2
+  $items['arms execute'] = array(
+    'callback' => '_arms_util_drush_execute',
+    'description' => 'Execute a PHP script with specified Drupal/Civi context',
+  );
+  $items['arms contacts'] = array(
+    'callback' => 'arms_util_drush_contacts',
+    'description' =>'Print all contacts in CSV format',
+  );
+  $items['arms cx import'] = array(
+    'callback' => '_arms_cx_drush_import',
+    'description' => 'Import Civi customizations',
+  );
+  $items['arms cx export customgroups'] = array(
+    'callback' => '_arms_cx_drush_export_customgroups',
+    'description' => 'Export Civi custom groups',
+  );
+  $items['arms cx export ufgroups'] = array(
+    'callback' => '_arms_cx_drush_export_ufgroups',
+    'description' => 'Export Civi user-framework groups (profiles)',
+  );
+  $items['arms option mergeinto'] = array(
+    'callback' => '_arms_util_option_drush_mergeinto',
+    'description' => 'Merge two optionvalues. Params: <option-group-id> <deprecated-value> <preferred-value>',
+  );
+  $items['arms rawexpimp export'] = array(
+    'callback' => 'arms_util_rawexpimp_drush_export',
+    'description' => 'Export contact record and affiliated data; expects one parameter, a comma-separated listed of contact IDs',
+  );
+  $items['arms rawexpimp import'] = array(
+    'callback' => 'arms_util_rawexpimp_drush_import',
+    'description' =>'Import contact data from STDIN',
+  );
+  return $items;
+}
+
+
+/**
+ * The hook_civicrm_post can't see lifecycle events for activities. This
+ * module defines a quick hack to provide an alternate means.
+ */
+function custom_civicrm_dao_function($op, &$dao) {
+  if ($dao instanceof CRM_Activity_DAO_Activity) {
+    module_invoke_all('civicrm_hack_dao', $op, $dao);
+  }
+  else if ($dao instanceof CRM_Activity_DAO_ActivityAssignment) {
+    module_invoke_all('civicrm_hack_dao', $op, $dao);
+  }
+  else if ($dao instanceof CRM_Activity_DAO_ActivityTarget) {
+    module_invoke_all('civicrm_hack_dao', $op, $dao);
+  }
+  else if ($dao instanceof CRM_Mailing_Event_DAO_Queue) {
+    module_invoke_all('civicrm_hack_dao', $op, $dao);
+  }
+}
+
+/**
+ * Patch to improve compatibility between ezcMail 1.6 and PHP 5.2.0.
+ *
+ * @see https://secure.bentonconsult.com/projects/arms/ticket/520
+ * @see http://php.net/manual/en/function.sys-get-temp-dir.php
+ */
+if ( !function_exists('sys_get_temp_dir')) {
+  function sys_get_temp_dir() {
+      if( $temp=getenv('TMP') )        return $temp;
+      if( $temp=getenv('TEMP') )        return $temp;
+      if( $temp=getenv('TMPDIR') )    return $temp;
+      $temp=tempnam(__FILE__,'');
+      if (file_exists($temp)) {
+          unlink($temp);
+          return dirname($temp);
+      }
+      return null;
+  }
+}
+
+/**
+ * Call a function after the transaction commits. If no transaction is live, then call the function immediately.
+ *
+ * <code>
+ * function myfunc($a, $b) { print $a + $b; }
+ * arms_util_post_commit(array(
+ *   'name' => 'print_a',
+ *   'func' => 'myfunc',
+ *   'args' => array(1,2),
+ * ));
+ * </code>
+ *
+ * @param $params array
+ *  - func: callback
+ *  - args: arguments for callback
+ *  - name: symbolic name of task; if multiple items have the same symbolic name, then only the last is called
+ * @return void
+ */
+function arms_util_post_commit($params) {
+  $curry = new ARMS_Util_CurriedFunction();
+  $curry->func = $params['func'];
+  $curry->args = $params['args'];
+  $curry->name = $params['name'];
+
+  if (! class_exists('CRM_Core_Transaction') || ! CRM_Core_Transaction::isActive()) {
+    // We don't have infrastructure to defer any further.
+    $curry->run();
+    return;
+  }
+
+  global $_arms_util_post_commit_tasks;
+  if (!is_array($_arms_util_post_commit_tasks)) {
+    $_arms_util_post_commit_tasks = array();
+    CRM_Core_Transaction::addCallback(
+      CRM_Core_Transaction::PHASE_POST_COMMIT,
+      '_arms_util_post_commit_run'
+    );
+  }
+  
+  if ($curry->name) {
+    $_arms_util_post_commit_tasks[$curry->name] = $curry;
+  } else {
+    $_arms_util_post_commit_tasks[] = $curry;
+  }
+}
+
+function _arms_util_post_commit_run() {
+  global $_arms_util_post_commit_tasks;
+  $tasks = $_arms_util_post_commit_tasks;
+  $_arms_util_post_commit_tasks = FALSE;
+  
+  foreach ($tasks as $curry) {
+    $curry->run();
+  }
+}
+
+/**
+ * Create a callback using a curried function
+ *
+ * @return a callback, suitable for use in call_user_func
+ * @see e.g. http://en.wikipedia.org/wiki/Currying
+ */
+function arms_util_curry() {
+  $args = func_get_args();
+  $instance = new ARMS_Util_CurriedFunction();
+  $instance->func = array_shift($args);
+  $instance->args = $args;
+  return array($instance, 'run');
+}
+
+class ARMS_Util_CurriedFunction {
+  function run() {
+    if (is_string($this->include)) {
+      require_once $this->include;
+    } elseif (is_array($this->include)) {
+      call_user_func_array('module_load_include', $this->include);
+    }
+    $rt_args = func_get_args();
+    $args = array_merge($this->args, $rt_args);
+    return call_user_func_array($this->func, $args);
+  }
+}
+
+/**
+ * Specify a callback which references a function in another file.
+ * The other file should be included before invoking the callback.
+ *
+ * @param $include mixed; string (filename for require_once) or array (passed to module_load_include)
+ * @param $callback mixed
+ * @return callback
+ */
+function arms_util_load_callback($include, $callback) {
+  $args = func_get_args();
+  $instance = new ARMS_Util_CurriedFunction();
+  $instance->include = $include;
+  $instance->func = $callback;
+  $instance->args = array();
+  return array($instance, 'run');  
+}
+
+/**
+ * Parse a simple CSV file and pass each row to a callback
+ *
+ * @param $file string
+ * @param $callback callback; the callback should accept one array parameter
+ * @param $use_header boolean Whether to substitute numeric indices with header names
+ * @param $skip_hollow boolean Whether to skip rows that don't contain any content
+ * @return void
+ */
+function arms_util_csv_each($file, $callback, $use_header = TRUE, $skip_hollow = TRUE) {
+  arms_util_include_api('array');
+  require_once 'ARMS/Util/CsvIterator.php';
+  $csv = new ARMS_Util_CsvIterator($file);
+  
+  if ($use_header) {
+    $header = FALSE;
+    foreach ($csv as $row_num => $data) {
+      if ($header === FALSE) {
+        $header = $data;
+        foreach ($header as $k => $v) {
+          if (empty($v)) {
+            $header[$k] = '#' . $k;
+          }
+        }
+      } elseif ($skip_hollow && arms_util_array_hollow($data)) {
+        // skip
+      } else {
+        // If there are more values than headers...
+        for ($c = count($header); $c < count($data); $c++) {
+          $header[] = '#' . $c;
+        }
+        // If there are more headers than values...
+        for ($c = count($data); $c < count($header); $c++) {
+          $data[] = NULL;
+        }
+        $data = array_combine($header, $data);
+        call_user_func($callback, $data);
+      }
+    }
+  } else {
+    foreach ($csv as $row_num => $data) {
+      if ($skip_hollow && arms_util_array_hollow($data)) {
+        // skip
+      } else {
+        call_user_func($callback, $data);
+      }
+    }
+  }
+}
+
+/**
+ * Determine the current time
+ *
+ * This is a wrapper for time(), but it's results can be manipulated for purposes of unit testing
+ *
+ * @param $reset int, optional, seconds since epoch; overrides the real system time for the duration of this request
+ * @return int, seconds since epoch; see time()
+ */
+function arms_util_time($reset = FALSE) {
+  static $_delta = 0;
+  if ($reset !== FALSE) {
+    $_delta = $reset - time();
+  }
+  return time() + $_delta;
+}
+
+/**
+ * Parse a simple CSV file and pass each row to a callback
+ *
+ * @param $file string
+ * @param $use_header boolean Whether to substitute numeric indices with header names
+ * @return array; keys are row numbers, values are arrays
+ *
+function arms_util_csv_read($file, $use_header = TRUE) {
+  $ao = new ArrayObject();
+  arms_util_csv_each($file, array($ao, 'offsetSet'), $use_header);
+  return $ao->exchangeArray(array());
+}*/
+
+/**
+ * hook_requirements
+ *
+function arms_util_requirements($phase) {
+  arms_util_include_api('cx');
+  return arms_util_cx_requirements($phase);
+}*/
+
+/**
+ * Parse an extensible record, moving fields from a serialized clob to the main record
+ *
+ * Note: One serialized field in $table should be flagged in hook_schema with 'is extension'.
+ *
+ * @param $table string a table name
+ * @param $row array or stdclass representing a row in $table
+ * @return a parsed record; of the same type as $row
+ */
+function arms_util_xt_parse($table, $row) {
+  if (!$row) return $row;
+  $field = _arms_util_xt_field($table);
+  if (!$field) return $row;
+  
+  // temporarily convert stdClass to array
+  $is_array = is_array($row);
+  if (!$is_array) {
+    $row = (array) $row;
+  }
+
+  $extras = unserialize($row[$field]);
+  unset($row[$field]);
+  if (is_object($extras)) {
+    $extras = (array) $extras;
+  }
+  if (is_array($extras)) { 
+    $row = array_merge($extras, $row);
+  }
+  
+  if ($is_array) {
+    return $row;
+  } else {
+    return (object) $row;
+  }
+}
+
+/**
+ * Insert or update an extensible record, moving unrecognized fields to a serialized blob.
+ *
+ * Note: One serialized clob field in $table should be flagged in hook_schema with 'is extension'.
+ *
+ * @param $table string
+ * @param $object array or stdClass
+ * @param $keys optional, string or array of string; update pre-existing records with matching $keys; if omitted, determine automatically
+ * @return FALSE, SAVED_NEW, SAVED_UPDATED
+ * @see drupal_write_record
+ */
+function arms_util_xt_save($table, &$object, $keys = ARMS_UTIL_XT_AUTOKEY) { 
+  $schema = drupal_get_schema($table);
+  if (!$schema) return FALSE;
+  $was_array = is_array($object);
+  if (is_array($object)) {
+    $object = (object) $object;
+  }
+
+  // split the object in two -- $primary and $extras
+  $primary = new stdClass();
+  $extras = array();
+  foreach ($object as $key => $value) {
+    if ($schema['fields'][$key]) {
+      $primary->{$key} = $object->{$key};
+    } else {
+      $extras[$key] = $object->{$key};
+    }
+  }
+  $field = _arms_util_xt_field($table);
+  if ($field) {
+    $primary->{$field} = $extras;
+  }
+  
+  // automatically determine if this is new or updated
+  if ($keys == ARMS_UTIL_XT_AUTOKEY) {
+    // Pre-condition: $is_new is undefined, and PKs are unset or set (empty or non-empty)
+    // Post-condition: ($is_new and PK is unset) || (!$is_new and PK is non-empty)
+    // Note: Multi-column PKs: $is_new iff ANY column is non-empty; columns are either unset or non-empty
+    $is_new = TRUE;
+    foreach ($schema['primary key'] as $key) {
+      if (isset($object->{$key})) {
+        if (empty($object->{$key})) {
+          unset($object->{$key}); // paranoia
+        } else {
+          $is_new = FALSE;
+        }
+      }
+    }
+    $keys = $is_new ? array() : $schema['primary key'];
+  } else {
+    $is_new = !empty($keys);
+  }
+  
+  $result = drupal_write_record($table, $primary, $keys);
+  if ($result && $is_new) {
+    foreach ($schema['primary key'] as $key) {
+      $object->{$key} = $primary->{$key};
+    }
+  }
+  
+  if ($was_array) {
+    $object = (array) $object;
+  }
+  
+  return $result;
+}
+
+/**
+ * Determine the extensible field in the given table
+ *
+ * @return string, column name or FALSE
+ */
+function _arms_util_xt_field($table) {
+  static $extra_fields;
+  if (!isset($extra_fields[$table])) {
+    $extra_fields[$table] = FALSE; // default
+    $schema = drupal_get_schema($table);
+    if (@$schema['fields']) {
+      foreach ($schema['fields'] as $name => $field) {
+        if ($field['is extension']) {
+          $extra_fields[$table] = $name;
+          break;
+        }
+      }
+    }
+  }
+  return $extra_fields[$table];
+}
+
+/**
+ * Create a callback which sorts based on a key.
+ *
+ * For example, suppose you have a array of person objects, and each object includes
+ * an "age" and a "lastname" property. 
+ *
+ * To sort by ascending age: usort($people, arms_util_sort_by('age'));
+ *
+ * To sort by decending lastname: usort($people, arms_util_sort_by('lastname', FALSE));
+ *
+ * @param $key string, a property name shared by all sortable objects
+ */
+function arms_util_sort_by($key, $ascend = TRUE) {
+  return arms_util_curry('_arms_util_sort_by', $key, $ascend ? 1 : -1);
+}
+
+function _arms_util_sort_by($key, $multiplier, $a, $b) {
+  $av = is_object($a) ? $a->{$key} : $a[$key];
+  $bv = is_object($b) ? $b->{$key} : $b[$key];
+  if ($av == $bv) return 0;
+  if ($av < $bv) return -1 * $multiplier;
+  if ($av > $bv) return 1 * $multiplier;
+}
+
+/**
+ * SQL Entity I/O with support for CiviCRM custom-data model
+ *
+ * Like the CiviCRM API, this provides a facade which makes custom-data appear
+ * as part of the entity. Unlike the CiviCRM API, it makes no attempt to
+ * protect developers from schema changes or to translate quasi-constants
+ * (like "activity_type_id" and "gender_id").
+ *
+ * @param $params array with keys:
+ *   - entity: SQL table name
+ *   - action: insert, update
+ *   - data: key-value pairs, incl "id" and "custom_123" for custom data
+ * @return array(entity => sqlTableName, data => key-value-pairs); note: for 'insert', the 'data' will be updated with entity id
+ */
+function arms_util_thinapi($params) {
+  module_load_include('thinapi.inc', 'arms_util');
+  return _arms_util_thinapi($params);
+}
+?>

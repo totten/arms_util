@@ -1,0 +1,83 @@
+<?php
+
+/**
+ * Test harness for the ARMS CDMD utilities
+ * 
+ * Dependencies:
+ * Drupal-SimpleTest 1.x
+ * arms_util.cdmd.inc
+ */ 
+
+class ArmsUtilCdmdTestCase extends DrupalTestCase {
+
+  function get_info() {
+    return array(
+      'name' => t('ARMS CDMD Tests'),
+      'desc' => 'Test custom-data meta-data functions',
+      'group' => 'ARMS'
+    );
+  }
+  
+  function setUp() {
+    arms_util_include_api('cdmd');
+    $this->cdmdGroup = array(
+      'fields' => array(
+        'pre_existing' => array(
+          'id' => 2,
+          'label' => 'Pre-existing field',
+          'column_name' => 'pre_existing_2',
+        ),
+      ),
+    );
+  }
+
+  function testFieldNameNumericSuffix() {
+    $fieldName = arms_util_cdmd_field_name(FALSE, 'mycolumn_5', 5);
+    $this->assertEqual($fieldName, 'mycolumn', 'Check field name');
+  }
+  
+  function testFieldNameNonNumericSuffix() {
+    $fieldName = arms_util_cdmd_field_name(FALSE, 'mycolumn_eng', 5);
+    $this->assertEqual($fieldName, 'mycolumn', 'Check field name');
+  }
+    
+  function testFieldNameNoSuffix() {
+    $fieldName = arms_util_cdmd_field_name(FALSE, 'mycolumn', 5);
+    $this->assertEqual($fieldName, 'mycolumn', 'Check field name');
+  }
+  
+  function testFieldNameExtraUnderscores() {
+    $fieldName = arms_util_cdmd_field_name(FALSE, 'my__column__5', 5);
+    $this->assertEqual($fieldName, 'my__column_', 'Check field name');
+  }
+
+  function testFieldNameNoConflict() {
+    $fieldName = arms_util_cdmd_field_name($this->cdmdGroup, 'mycolumn_5', 5);
+    $this->assertEqual($fieldName, 'mycolumn', 'Check field name');
+  }
+
+  function testFieldNameConflict() {
+    $fieldName = arms_util_cdmd_field_name($this->cdmdGroup, 'pre_existing_5', 5);
+    $this->assertEqual($fieldName, 'pre_existing_5', 'Check field name');
+  }
+
+  function testFieldNameCrazyConflict() {
+    $this->cdmdGroup = array(
+      'fields' => array(
+        'preexisting' => array(
+          'id' => 2,
+          'label' => 'Pre-existing field',
+          'column_name' => 'preexisting_2',
+        ),
+        'preexisting_eng' => array(
+          'id' => 3,
+          'label' => 'Pre-existing field',
+          'column_name' => 'preexisting_eng_3',
+        ),
+      ),
+    );
+    $fieldName = arms_util_cdmd_field_name($this->cdmdGroup, 'preexisting_eng', 5);
+    $this->assertEqual($fieldName, 'custom_5', 'Check field name');
+  }
+
+}

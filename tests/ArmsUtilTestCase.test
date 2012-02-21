@@ -1,0 +1,100 @@
+<?php
+
+/**
+ * Test harness for the ARMS array utilities
+ * 
+ * Dependencies:
+ * Drupal-SimpleTest 1.x
+ * arms_util.inc
+ */ 
+
+class ArmsUtilTestCase extends DrupalTestCase {
+
+  function get_info() {
+    return array(
+      'name' => t('ARMS Util Tests'),
+      'desc' => 'Test misc utility functions',
+      'group' => 'ARMS'
+    );
+  }
+  
+  function setUp() {
+  }
+
+  function testUtilField() {
+    $this->assertEqual(arms_util_field(array('core','first_name')), arms_util_field('core:first_name'));
+
+    $field = arms_util_field('core:first_name');
+    $this->assertEqual($field['_name'], 'first_name');
+    $this->assertEqual($field['_param'], 'first_name');
+    $this->assertEqual($field['_full_name'], 'core:first_name');
+    $this->assertEqual($field['_group_name'], 'core');
+    $this->assertEqual($field['label'], 'First Name');
+  }
+  
+  function testUtilFieldParam() {
+    $this->assertEqual(arms_util_field_param('core:first_name'), 'first_name');
+  }
+    
+  function testUtilFieldLabel() {
+    $this->assertEqual(arms_util_field_label('core:first_name'), 'First Name');
+  }
+  
+  function testTime() {
+    // By default, use the system time
+    $this->assertEqual(arms_util_time(), time());
+    
+    // Simulate a new time
+    arms_util_time(strtotime('2001-02-03 04:05:06'));
+    $this->assertEqual(arms_util_time(), strtotime('2001-02-03 04:05:06'));
+    
+    // Make sure time progresses naturally
+    sleep(5);
+    $this->assertEqual(arms_util_time(), strtotime('2001-02-03 04:05:11'));
+  }
+  
+  function testSortBy() {
+    $unsorted = array(
+      array('weight' => 0, 'name' => 'c'),
+      array('weight' => 2, 'name' => 'd'),
+      array('weight' => -1, 'name' => 'b'),
+      array('weight' => 1, 'name' => 'a'),
+    );
+    
+    $ascWeight = $unsorted;
+    usort($ascWeight, arms_util_sort_by('weight'));
+    $this->assertEqual($ascWeight, array(
+      array('weight' => -1, 'name' => 'b'),
+      array('weight' => 0, 'name' => 'c'),
+      array('weight' => 1, 'name' => 'a'),
+      array('weight' => 2, 'name' => 'd'),
+    ));
+    
+    $descWeight = $unsorted;
+    usort($descWeight, arms_util_sort_by('weight', FALSE));
+    $this->assertEqual($descWeight, array(
+      array('weight' => 2, 'name' => 'd'),
+      array('weight' => 1, 'name' => 'a'),
+      array('weight' => 0, 'name' => 'c'),
+      array('weight' => -1, 'name' => 'b'),
+    ));
+    
+    $ascName = $unsorted;
+    usort($ascName, arms_util_sort_by('name', TRUE));
+    $this->assertEqual($ascName, array(
+      array('weight' => 1, 'name' => 'a'),
+      array('weight' => -1, 'name' => 'b'),
+      array('weight' => 0, 'name' => 'c'),
+      array('weight' => 2, 'name' => 'd'),
+    ));
+    
+    $descName = $unsorted;
+    usort($descName, arms_util_sort_by('name', FALSE));
+    $this->assertEqual($descName, array(
+      array('weight' => 2, 'name' => 'd'),
+      array('weight' => 0, 'name' => 'c'),
+      array('weight' => -1, 'name' => 'b'),
+      array('weight' => 1, 'name' => 'a'),
+    ));
+  }
+}

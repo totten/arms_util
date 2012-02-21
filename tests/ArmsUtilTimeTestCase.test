@@ -1,0 +1,75 @@
+<?php
+
+class ArmsUtilTimeTestCase extends DrupalTestCase {
+
+  function get_info() {
+    return array(
+      'name' => t('ARMS Time Tests'),
+      'desc' => 'Test misc time functions',
+      'group' => 'ARMS'
+    );
+  }
+
+  function setUp() {
+    module_load_include('time.inc', 'arms_util');
+  }
+
+  function testToSec() {
+    $data = array(
+      '5 minutes' => 300.0,
+      '5 min 10 sec' => 310.0,
+      '05:10' => 310.0,
+      '05:10.2' => 310.2,
+      '05:10.25' => 310.25,
+      '5m 10s' => 310.0,
+      '' => '',
+      '5.5m 70.3s' => 400.3, // comprehensible nonsense; we take it literally
+      '5.5:70.3' => 400.3, // comprehensible nonsense; we take it literally
+      // '60' => 60,
+      // '78' => 78,
+    );
+    foreach ($data as $input => $expected) {
+      $actual = arms_util_time_to_sec($input);
+      $this->assertTrue($expected === $actual, strtr('Input=[@in] Expected=[@exp] Actual=[@act]', array(
+        '@in' => $input,
+        '@exp' => $expected,
+        '@act' => $actual,
+      )));
+    }
+  }
+  
+  function testToFmt() {
+    $data = array(
+      300 => '05:00',
+      310 => '05:10',
+      '310.2' => '05:10.20',
+      '310.01' => '05:10.01',
+      '310.99' => '05:10.99',
+    );
+    foreach ($data as $input => $expected) {
+      $actual = arms_util_time_to_fmt($input);
+      $this->assertTrue($expected === $actual, strtr('Input=[@in] Expected=[@exp] Actual=[@act]', array(
+        '@in' => $input,
+        '@exp' => $expected,
+        '@act' => $actual,
+      )));
+    }  
+  }
+  
+  function testRoundTrip() {
+    $data = array(
+      '05:10' => '05:10',
+      '5.5 min' => '05:30',
+      // "78" => "6' 6",
+    );
+    foreach ($data as $input => $expected) {
+      $actual = arms_util_time_to_fmt(arms_util_time_to_sec($input));
+      $this->assertTrue($expected === $actual, strtr('Input=[@in] Expected=[@exp] Actual=[@act]', array(
+        '@in' => $input,
+        '@exp' => $expected,
+        '@act' => $actual,
+      )));
+    }
+  }
+
+}

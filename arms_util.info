@@ -1,0 +1,5 @@
+package = ARMS
+name = "Util"
+description = "Collection of helpful functions used by the ARMS project"
+core = 6.x
+version = "6.x-0.1"

@@ -1,0 +1,84 @@
+<?php
+
+class ArmsUtilHeightTestCase extends DrupalTestCase {
+
+  function get_info() {
+    return array(
+      'name' => t('ARMS Height Tests'),
+      'desc' => 'Test misc height functions',
+      'group' => 'ARMS'
+    );
+  }
+
+  function setUp() {
+    module_load_include('height.inc', 'arms_util');
+  }
+
+  function testToIn() {
+    $data = array(
+      '6' => 72,
+      '6.5' => 78,
+      '6ft6in' => 78,
+      '6.5 FEET' => 78,
+      '6\' 6"' => 78,
+      ' 6 \'  6 ' => 78,
+      '6` 6' => 78, // back-quote
+      '78 inches' => 78,
+      ' 6 fOoT 6 IncH ' => 78,
+      '6 ft 6' => 78,
+      '200 cm' => 78,
+      '2.0 m' => 78,
+      '0.00984848485 furlong' => 78,
+      '6-2' => 74,
+      '6-2\'\'' => 74,
+      '6` 2``' => 74, // back-quote
+      '6\'2"' => 74,
+      '6\'4”' => 76,
+      'zulu' => 'zulu',
+      '' => '',
+      '6ft 4.2' => 76,
+      '6.5ft 2.2in' => 80, // comprehensible nonsense; we take it literally (6.5ft + 2.2in ~= 6ft 8in)
+      // '60' => 60,
+      // '78' => 78,
+    );
+    foreach ($data as $input => $expected) {
+      $actual = arms_util_height_to_in($input);
+      $this->assertTrue($expected === $actual, strtr('Input=[@in] Expected=[@exp] Actual=[@act]', array(
+        '@in' => $input,
+        '@exp' => $expected,
+        '@act' => $actual,
+      )));
+    }
+  }
+  
+  function testToFmt() {
+    $data = array(
+      60 => "5' 0",
+      78 => "6' 6",
+    );
+    foreach ($data as $input => $expected) {
+      $actual = arms_util_height_to_fmt($input);
+      $this->assertTrue($expected === $actual, strtr('Input=[@in] Expected=[@exp] Actual=[@act]', array(
+        '@in' => $input,
+        '@exp' => $expected,
+        '@act' => $actual,
+      )));
+    }  
+  }
+  
+  function testRoundTrip() {
+    $data = array(
+      "6' 2" => "6' 2",
+      "6.5" => "6' 6",
+      // "78" => "6' 6",
+    );
+    foreach ($data as $input => $expected) {
+      $actual = arms_util_height_to_fmt(arms_util_height_to_in($input));
+      $this->assertTrue($expected === $actual, strtr('Input=[@in] Expected=[@exp] Actual=[@act]', array(
+        '@in' => $input,
+        '@exp' => $expected,
+        '@act' => $actual,
+      )));
+    }
+  }
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="iso-8859-1" ?>
+
+<menu>
+  <item>
+     <path>civicrm/admin/custom/group/field/advanced</path>
+     <title>Logs</title>
+     <access_arguments>administer CiviCRM</access_arguments>
+     <page_type>1</page_type>
+     <page_callback>ARMS_Util_Page_Redir</page_callback>
+     <page_arguments>path=admin/arms/field/%%id%%</page_arguments>
+     <weight>22</weight>
+  </item>
+</menu>

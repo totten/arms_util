@@ -1,0 +1,81 @@
+<?php
+
+function arms_util_enable() {
+}
+
+function arms_util_disable() {
+  module_load_include('trigger.inc', 'arms_util');
+  arms_util_trigger_clear(ARMS_UTIL_TRIGGER_PREFIX);
+}
+
+function arms_util_schema() {
+  arms_util_write_custom_data_meta_data(ARMS_UTIL_LOG_WATCHDOG);
+  $config =& _arms_util_read_custom_data_config(TRUE);
+
+  $schema = array();
+
+  foreach ($config as $group_name => $group) {
+    $table = array('fields' => array());
+
+    // All custom data tables have these two columns
+    
+    $table['fields']['id'] = array(
+      'type' => 'serial',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+    );
+    
+    $table['fields']['entity_id'] = array(
+      'type' => 'int',
+      'unsigned' => TRUE,
+      'not null' => TRUE,
+    );
+
+    if (!empty($group['fields'])) {
+      foreach ($group['fields'] as $field_name => $field) {
+        $drupalField = _arms_util_civicrm_field_to_drupal_field($field);
+        if ($drupalField) {
+          $table['fields'][$field['column_name']] = $drupalField;
+        }
+      }
+    }
+    
+    $table['primary key'] = array('id');
+
+
+    $schema [$group['table_name']]= $table;
+  }
+
+  #dpm(array('custom schema' => $schema));
+  return $schema;
+}
+
+/**
+ * Translate a CiviCRM Custom Field to a column in Drupal's schema notation.
+ * Note that we don't try to map every possible detail of the schema -- just
+ * enough that we can use drupal_write_record.
+ */
+function _arms_util_civicrm_field_to_drupal_field($field) {
+  switch($field['data_type']) {
+    case 'String':
+    case 'Link':
+      return array('type' => 'varchar','size' => 'normal');
+    case 'Int': 
+      return array('type' => 'int', 'size' => 'normal');
+    case 'Float':
+      return array('type' => 'float', 'size' => 'big');
+    case 'Money':
+      return array('type' => 'numeric', 'size' => 'normal', 'precision' => 20, 'scale' => 2);
+    case 'Memo': 
+    case 'RichTextEditor':
+      return array('type' => 'text', 'size' => 'normal');
+    case 'Date': 
+      return array('type' => 'datetime', 'size' => 'normal');
+    case 'Boolean': 
+      return array('type' => 'int', 'size' => 'tiny');
+    case 'StateProvince': 
+    case 'Country': 
+    case 'File': 
+      return NULL; // skip
+  }
+}

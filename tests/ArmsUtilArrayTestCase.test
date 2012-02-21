@@ -1,0 +1,467 @@
+<?php
+
+/**
+ * Test harness for the ARMS array utilities
+ * 
+ * Dependencies:
+ * Drupal-SimpleTest 1.x
+ * arms_util.inc
+ */ 
+
+class ArmsUtilArrayTestCase extends DrupalTestCase {
+
+  function get_info() {
+    return array(
+      'name' => t('ARMS Array Tests'),
+      'desc' => 'Test misc array functions',
+      'group' => 'ARMS'
+    );
+  }
+  
+  function setUp() {
+    arms_util_include_api('array');
+  }
+  
+  function testCollect() {
+    $array = array(
+      'a' => array('pronounce' => 'Eh?', 'num' => 1),
+      'b' => array('pronounce' => 'Be', 'num' => 2),
+      'c' => array('pronounce' => 'See', 'num' => 3),
+    );
+    $nums = arms_util_array_collect($array, 'num');
+    $this->assertEqual(count($nums), 3);
+    $this->assertEqual($nums['a'], 1);
+    $this->assertEqual($nums['b'], 2);
+    $this->assertEqual($nums['c'], 3);
+    
+    $this->assertEqual($array['a']['pronounce'], 'Eh?');
+    $this->assertEqual($array['b']['num'], 2);
+    $this->assertEqual($array['c']['pronounce'], 'See');
+  }
+
+  function testCollectMulti() {
+    $array = array(
+      'a' => array('foo' => 'one', 'bar' => array('whiz' => 'bang')),
+      'b' => array('foo' => 'two', 'bar' => array('whiz' => 'boom')),
+      'c' => array('foo' => 'three', 'bar' => array('whiz' => 'bust')),
+    );
+    $nums = arms_util_array_collect($array, array('bar','whiz'));
+    $this->assertEqual(count($nums), 3);
+    $this->assertEqual($nums['a'], 'bang');
+    $this->assertEqual($nums['b'], 'boom');
+    $this->assertEqual($nums['c'], 'bust');
+  }
+
+  function testRekey() {
+    $names = array('zero', 'one', 'two', 'three');
+    $values = array('Alice', 'Bob', 'Charlie', 'Mallory');
+    $rekeyed = arms_util_array_rekey($names, $values);
+    $this->assertFalse(isset($rekeyed[0]), '$rekeyed should not have artifacts of $values');
+    $this->assertEqual('Alice', $rekeyed['zero']);
+    $this->assertEqual('Bob', $rekeyed['one']);
+    $this->assertEqual('Charlie', $rekeyed['two']);
+    $this->assertEqual('Mallory', $rekeyed['three']);
+  }
+  
+  function testRekey2() {
+    $keys = array('a' => 'zero', 'd' => 'three');
+    $values = array('d' => 'Mallory', 'a' => 'Alice');
+    $rekeyed = arms_util_array_rekey($keys, $values);
+    $this->assertFalse(isset($rekeyed[0]), '$rekeyed should not have artifacts of $values');
+    $this->assertEqual('Alice', $rekeyed['zero']);
+    $this->assertEqual('Mallory', $rekeyed['three']);
+  }
+  
+  function testExplodeTree() {
+    $array = array(
+      'a:1' => 'Alice',
+      'a:2' => 'Bob',
+      'b:1:alpha' => 'Charlie',
+      'b:2:beta' => 'Eve',
+    );
+    $tree = arms_util_explode_tree(':', $array);
+    $this->assertFalse(isset($tree['a:1']), '$tree should not have artifacts $array');
+    $this->assertEqual('Alice', $tree['a']['1']);
+    $this->assertEqual('Bob', $tree['a']['2']);
+    $this->assertEqual('Charlie', $tree['b']['1']['alpha']);
+    $this->assertEqual('Eve', $tree['b']['2']['beta']);
+  }
+  
+  function testImplodeTree() {
+    $tree = array(
+      'a' => 'Aaa',
+      'b' => array(
+        '1' => 'un',
+        '2' => 'deux',
+        '3' => array(
+          'i' => 'trois',
+          'ii' => 'tres',
+        ),
+      ),
+      'c' => array('quatre'),
+    );
+    $array = arms_util_implode_tree(':', $tree);
+    $this->assertEqual(count($array), 6);
+    $this->assertEqual($array['a'], 'Aaa');
+    $this->assertEqual($array['b:1'], 'un');
+    $this->assertEqual($array['b:2'], 'deux');
+    $this->assertEqual($array['b:3:i'], 'trois');
+    $this->assertEqual($array['b:3:ii'], 'tres');
+    $this->assertEqual($array['c:0'], 'quatre');
+  }
+  
+  function testHollow() {
+    $array = array();
+    $this->assertTrue(arms_util_array_hollow($array), 'Empty array should be hallow ');
+    $array = FALSE;
+    $this->assertTrue(arms_util_array_hollow($array), 'FALSE should be hallow ');
+    $array = NULL;
+    $this->assertTrue(arms_util_array_hollow($array), 'NULL should be hallow ');
+  }
+  
+  function testHollow2() {
+    $array = array('a' => '');
+    $this->assertTrue(arms_util_array_hollow($array), 'Empty string value should count as hollow');
+    $array = array('a' => NULL);
+    $this->assertTrue(arms_util_array_hollow($array), 'Null value should count as hollow');
+    $array = array('a' => array());
+    $this->assertTrue(arms_util_array_hollow($array), 'Empty array value should count as hollow');
+    $array = array('a' => '', 'b' => NULL, 'c' => array());
+    $this->assertTrue(arms_util_array_hollow($array), 'Combination of hollow values should be hollow');
+  }
+  
+  function testHollow3() {
+    $array = array('a' => '', 'b' => NULL, 'c' => array(), 'd' => 'Doobie');
+    $this->assertFalse(arms_util_array_hollow($array), 'One string value should make array non-hollow');
+    $array = array('a' => '', 'b' => NULL, 'c' => array(), 'd' => TRUE);
+    $this->assertFalse(arms_util_array_hollow($array), 'One TRUE value should make array non-hollow');
+    $array = array('a' => '', 'b' => NULL, 'c' => array(), 'd' => 0);
+    $this->assertFalse(arms_util_array_hollow($array), 'One 0 value should make array non-hollow');
+    $array = array('a' => '', 'b' => NULL, 'c' => array(), 'd' => '0');
+    $this->assertFalse(arms_util_array_hollow($array), 'One 0 value should make array non-hollow');
+    $array = array('a' => '', 'b' => NULL, 'c' => array(), 'd' => FALSE);
+    $this->assertFalse(arms_util_array_hollow($array), 'One FALSE value should make array non-hollow');
+  }
+  
+  function testHollowRecursive() {
+    $array = array('a' => array('b' => ''));
+    $this->assertFalse(arms_util_array_hollow($array, FALSE), 'When $recurse is false, a nested hollow array does not make outer array hollow');
+    $array = array('a' => array('b' => ''));
+    $this->assertTrue(arms_util_array_hollow($array, TRUE), 'When $recurse is truee, a nested hollow array makes outer array hollow');
+  }
+
+  function testRekeyRosetta() {
+    $rosetta = array(
+      array('en' => 'One', 'fr' => 'Un', 'es' => 'Uno'),
+      array('en' => 'Two', 'fr' => 'Deux', 'es' => 'Dos'),
+      array('en' => 'Three', 'fr' => 'Trois', 'es' => 'Tres'),
+    );
+    $orig = array(
+      'One' => 'Alice',
+      'Two' => NULL,
+      'Three' => 'Charlie',
+      'Infinity' => 'Diane', // note: unmappable
+    );
+    $arr_fr = &arms_util_array_rekey_rosetta(&$rosetta, 'en', 'fr', $orig);
+    $arr_es = &arms_util_array_rekey_rosetta(&$rosetta, 'fr', 'es', $arr_fr);
+    $arr_en = &arms_util_array_rekey_rosetta(&$rosetta, 'es', 'en', $arr_es);
+
+    $this->assertEqual(count($arr_en), 3);
+    $this->assertEqual($arr_en['One'], 'Alice');
+    $this->assertEqual($arr_en['Two'], NULL);
+    $this->assertEqual($arr_en['Three'], 'Charlie');
+
+    $this->assertEqual(count($arr_fr), 3);
+    $this->assertEqual($arr_fr['Un'], 'Alice');
+    $this->assertEqual($arr_fr['Deux'], NULL);
+    $this->assertEqual($arr_fr['Trois'], 'Charlie');
+    
+    $this->assertEqual(count($arr_es), 3);
+    $this->assertEqual($arr_es['Uno'], 'Alice');
+    $this->assertEqual($arr_es['Dos'], NULL);
+    $this->assertEqual($arr_es['Tres'], 'Charlie');
+  }
+  
+  function testDeleteColumn() {
+    $array = array(
+      array('a1', 'b1', 'c1'),
+      array('a2', 'b2', 'c2'),
+    );
+    $this->assertEqual('a1', $array[0][0]);
+    $this->assertEqual('b1', $array[0][1]);
+    $this->assertEqual('c1', $array[0][2]);
+    $this->assertEqual('a2', $array[1][0]);
+    $this->assertEqual('b2', $array[1][1]);
+    $this->assertEqual('c2', $array[1][2]);
+    arms_util_array_delete_column($array, 1);
+    $this->assertEqual('a1', $array[0][0]);
+    $this->assertEqual('c1', $array[0][1]);
+    $this->assertEqual('a2', $array[1][0]);
+    $this->assertEqual('c2', $array[1][1]);
+  }
+
+  function testCombinePropertiesArray() {
+    $orig = array(
+      array('uid' => '123', 'name' => 'Alice', 'email' => 'alice@example.com'),
+      array('uid' => '234', 'name' => 'Bob', 'email' => 'bob@example.com'),
+    );
+    $actual = arms_util_array_combine_properties($orig, 'uid', 'name');
+    $expected = array(
+      '123' => 'Alice',
+      '234' => 'Bob',
+    );
+    $this->assertEqual($expected, $actual);
+  }
+  
+  function testCombinePropertiesObject() {
+    $alice = new stdClass();
+    $alice->uid = 123;
+    $alice->name = 'Alice';
+    $alice->email = 'alice@example.com';
+    $bob = new stdClass();
+    $bob->uid = 234;
+    $bob->name = 'Bob';
+    $bob->email = 'bob@example.com';  
+    $orig = array($alice, $bob);
+
+    $actual = arms_util_array_combine_properties($orig, 'uid', 'name');
+    $expected = array(
+      '123' => 'Alice',
+      '234' => 'Bob',
+    );
+    $this->assertEqual($expected, $actual);
+  }
+  
+  function testResolve() {
+    $arr = array(
+      'a1' => array(
+        'b1' => array(
+          'c1' => 'OK',
+          'c2' => 'Eep',
+        ),
+        'b2' => 'Eep',
+      ),
+    );
+    $result = arms_util_array_resolve($arr, array('a1', 'b1', 'c1'));
+    $this->assertEqual('OK', $result, 'Failed to resolve property'
+    );
+  }
+    
+  function testResolveNull() {
+    $arr = array(
+      'a1' => array(
+        'b1' => array(
+          'c1' => 'OK',
+          'c2' => 'Eep',
+        ),
+        'b2' => 'Eep',
+      ),
+    );
+    $result = arms_util_array_resolve($arr, array('a2', 'b2'));
+    $this->assertEqual(NULL, $result, 'Failed to resolve property');
+    $result = arms_util_array_resolve($arr, array('a1', 'b3'));
+    $this->assertEqual(NULL, $result, 'Failed to resolve property');
+  }
+  
+  function testPartitionAttr() {
+    $recStdClass = new stdClass();
+    $recStdClass->letter = 'a';
+    $recStdClass->label = 'Alpha';
+
+    $array = array();
+    $array['alpha'] = $recStdClass;
+    $array['aleph'] = array('letter' => 'a', 'label' => 'Aleph');
+    $array['beta'] = array('letter' => 'b', 'label' => 'Beta');
+    $array['bee'] = array('letter' => 'b', 'label' => 'Bee');
+    $array['zed'] = array('label' => 'Zed');
+    $array['zebra'] = 'Zebra';
+    
+    $part = arms_util_array_partition_attr($array, 'letter');
+    $this->assertEqual('Alpha', $part['a']['alpha']->label);
+    $this->assertEqual('Aleph', $part['a']['aleph']['label']);
+    $this->assertEqual('Beta', $part['b']['beta']['label']);
+    $this->assertEqual('Bee', $part['b']['bee']['label']);
+    $this->assertEqual('Zed', $part['_unknown_']['zed']['label']);
+    $this->assertEqual('Zebra', $part['_unknown_']['zebra']);
+  }
+  
+  function testPartitionFunc() {
+    $recStdClass = new stdClass();
+    $recStdClass->label = 'Alpha';
+
+    $array = array();
+    $array['alpha'] = $recStdClass;
+    $array['aleph'] = array('label' => 'Aleph');
+    $array['beta'] = array('label' => 'Beta');
+    $array['bee'] = array('label' => 'Bee');
+    $array['zed'] = array('label' => 'Zed');
+    $array['zebra'] = 'Zebra';
+    
+    $part = arms_util_array_partition_func($array, array($this, '_testPartitionFunc'));
+    $this->assertEqual('Alpha', $part['a']['alpha']->label);
+    $this->assertEqual('Aleph', $part['a']['aleph']['label']);
+    $this->assertEqual('Beta', $part['b']['beta']['label']);
+    $this->assertEqual('Bee', $part['b']['bee']['label']);
+    $this->assertFalse(isset($part['z']['zed']));
+    $this->assertFalse(isset($part['z']['zebra']));
+  }
+  
+  /// Use first letter as partition name, but -- to make things interesting -- ignore Z's
+  function _testPartitionFunc($key, $value) {
+    if ($key{0} != 'z') {
+      return $key{0};
+    } else {
+      return FALSE;
+    }
+  }
+  
+  function testChunks() {
+    $meta = array(
+      array(
+        'low' => 1,
+        'high' => 1,
+        'interval' => 10,
+        'chunks' => array(
+          array(1,1),
+        ),
+      ),
+      array(
+        'low' => 1,
+        'high' => 0,
+        'interval' => 10,
+        'chunks' => array(
+        ),
+      ),
+      array(
+        'low' => 1,
+        'high' => 2,
+        'interval' => 10,
+        'chunks' => array(
+          array(1,2),
+        ),
+      ),
+      array(
+        'low' => 1,
+        'high' => 10,
+        'interval' => 10,
+        'chunks' => array(
+          array(1,10),
+        ),
+      ),
+      array(
+        'low' => 1,
+        'high' => 11,
+        'interval' => 10,
+        'chunks' => array(
+          array(1,10),
+          array(11,11),
+        ),
+      ),
+      array(
+        'low' => 1,
+        'high' => 12,
+        'interval' => 10,
+        'chunks' => array(
+          array(1,10),
+          array(11,12),
+        ),
+      ),
+      array(
+        'low' => 1,
+        'high' => 40,
+        'interval' => 10,
+        'chunks' => array(
+          array(1,10),
+          array(11,20),
+          array(21,30),
+          array(31,40),
+        ),
+      ),
+      array(
+        'low' => 1,
+        'high' => 42,
+        'interval' => 10,
+        'chunks' => array(
+          array(1,10),
+          array(11,20),
+          array(21,30),
+          array(31,40),
+          array(41,42),
+        ),
+      ),
+    );
+    
+    foreach ($meta as $test) {
+      printf("Chunks %d => %d @ %d\n", $test['low'], $test['high'], $test['interval']);
+      foreach (arms_util_array_chunks($test['low'], $test['high'], $test['interval']) as $start => $end) {
+        $chunk = array_shift($test['chunks']);
+        printf(" - Expect [%d => %d]. Actual [%d => %d].\n", $chunk[0], $chunk[1], $start, $end);
+        $this->assertTrue($start == $chunk[0], sprintf("   - Expect Start [%d]. Actual Start [%d].", $chunk[0], $start));
+        $this->assertTrue($end == $chunk[1], sprintf("    - Expect End [%d]. Actual End [%d].", $chunk[1], $end));
+      }
+      $this->assertTrue(count($test['chunks']) == 0, 'No chunks should be left. ' . print_r($test['chunks'], TRUE));
+    }
+  }
+  
+  function testSeq() {
+    $this->assertEqual(arms_util_array_seq(1, 1), array(1 => 1));
+    $this->assertEqual(arms_util_array_seq(1, 2), array(1 => 1, 2 => 2));
+    $this->assertEqual(arms_util_array_seq(1, 4), array(1 => 1, 2 => 2, 3 => 3, 4 => 4));
+    $this->assertEqual(arms_util_array_seq(1, 10, 5), array(1 => 1, 6 => 6));
+    $this->assertEqual(arms_util_array_seq(0, 20, 5), array(0 => 0, 5 => 5, 10 => 10, 15 => 15, 20 => 20));
+  }
+  
+  function testDefaultsArray() {
+    $rows = array(
+      'one' => array('foo' => 123, 'bar' => '456'),
+      'two' => array('foo' => 789),
+    );
+    arms_util_array_defaults($rows, array(
+      'bar' => 999,
+    ));
+    $this->assertEqual($rows['one']['foo'], 123);
+    $this->assertEqual($rows['one']['bar'], 456);
+    $this->assertEqual($rows['two']['foo'], 789);
+    $this->assertEqual($rows['two']['bar'], 999);
+  }
+  
+  function testDefaultsObject() {
+    $rows = array(
+      'one' => (object) array('foo' => 123, 'bar' => '456'),
+      'two' => (object) array('foo' => 789),
+    );
+    arms_util_array_defaults($rows, array(
+      'bar' => 999,
+    ));
+    $this->assertEqual($rows['one']->foo, 123);
+    $this->assertEqual($rows['one']->bar, 456);
+    $this->assertEqual($rows['two']->foo, 789);
+    $this->assertEqual($rows['two']->bar, 999);
+  }
+  
+  function testTreeWalk() {
+    $tree = array(
+      'zed' => array(
+        'yow' => 1,
+        'new' => 2,
+        'roo' => 3,
+      ),
+      'ay' => array(
+        'jay' => 4,
+        'wee' => 5,
+        'bah' => 6,
+      ),
+      'moo' => array(
+      ),
+    );
+    
+    $this->assertNotEqual(array('ay', 'moo', 'zed'), array_keys($tree)); // unsorted
+    $this->assertNotEqual(array('new', 'roo', 'yow'), array_keys($tree['zed'])); // unsorted
+    $this->assertNotEqual(array('bah', 'jay', 'wee'), array_keys($tree['ay'])); // unsorted
+    arms_util_array_tree_walk($tree, 'ksort');
+    $this->assertEqual(array('ay', 'moo', 'zed'), array_keys($tree)); // sorted
+    $this->assertEqual(array('new', 'roo', 'yow'), array_keys($tree['zed'])); // sorted
+    $this->assertEqual(array('bah', 'jay', 'wee'), array_keys($tree['ay'])); // sorted
+    
+  }
+}
