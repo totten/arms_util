@@ -248,9 +248,12 @@ function arms_util_explode_tree($delim, &$arr) {
  * @param $delim A path delimiter
  * @param A multi-demensional, acyclic array
  */
-function arms_util_implode_tree($delim, &$arr) {
+function arms_util_implode_tree($delim, &$arr, $coerceObjects = FALSE) {
   $result = array();
   foreach ($arr as $key => &$value) {
+    if (is_object($value) && $coerceObjects) {
+      $value = (array)$value;
+    }
     if (is_array($value)) {
       $temp = &arms_util_implode_tree($delim, $value);
       foreach ($temp as $key2 => $value2) {
