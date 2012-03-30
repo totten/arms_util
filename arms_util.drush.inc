@@ -22,9 +22,15 @@ function _arms_util_drush_clear() {
  */
 function _arms_util_drush_execute($file, $sitename = 'unknown') {
   global $arms_util_drush_sitename;
+  global $arms_util_drush_execute;
+  $args = func_get_args();
+  array_shift($args);
+  array_shift($args);
+  
   $arms_util_drush_execute = array(
     'file' => $file,
-    'sitename' => $sitename
+    'sitename' => $sitename,
+    'args' => $args,
   );
   require_once $file;
 }
