@@ -142,7 +142,7 @@ class ARMS_Util_Select {
     }
     $join = sprintf('LEFT JOIN %s %s ON %s = %s.entity_id', $field['_table_name'], $tableAlias, $entityExpr, $tableAlias);
     $this->addJoin($join);
-    $this->addSelect(sprintf('%s.%s AS %s', $tableAlias, $field['column_name'], $fieldAlias));
+    $this->addSelect(sprintf('%s.%s AS `%s`', $tableAlias, $field['column_name'], $fieldAlias));
     return $this;
   }
   
