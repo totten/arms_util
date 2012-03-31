@@ -760,6 +760,7 @@ function arms_util_include_api() {
       case 'procedure':
       case 'query':
       case 'safe_file':
+      case 'talend':
       case 'thinapi':
       case 'time':
       case 'trigger':
@@ -1344,6 +1345,7 @@ function arms_util_drush_command() {
   include_once ('arms_util.cx.inc');
   include_once ('arms_util.option.inc');
   include_once ('arms_util.rawexpimp.inc');
+  include_once ('arms_util.talend.inc');
   $items['arms clear'] = array(
     'callback' => '_arms_util_drush_clear',
     'description' => 'Clear various Drupal, Civi, and ARMS caches',
@@ -1380,6 +1382,14 @@ function arms_util_drush_command() {
   $items['arms rawexpimp import'] = array(
     'callback' => 'arms_util_rawexpimp_drush_import',
     'description' =>'Import contact data from STDIN',
+  );
+  $items['arms talend export'] = array(
+    'callback' => 'arms_util_talend_export_drush',
+    'description' =>'Export data in the format required for ARMS\' Talend scripts. Params: <entity> <expected-headers-file> <sql-out-file> <csv-out-file>',
+  );
+  $items['arms talend schema'] = array(
+    'callback' => 'arms_util_talend_schema_drush',
+    'description' =>'Generate a Talend schema file for an entity\'s custom fields. Params: <entity> <expected-headers-file> <xml-out-file>',
   );
   return $items;
 }

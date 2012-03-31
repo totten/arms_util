@@ -93,6 +93,7 @@ function arms_util_cdmd_wrap_field($groupRow, $fieldRow, $cdmdGroup = FALSE) {
               'data_type'   => $fieldRow->data_type,
               'html_type'   => $fieldRow->html_type,
               'default_value' => $fieldRow->default_value,
+              'text_length' => $fieldRow->text_length,
               'option_group_id' => $fieldRow->option_group_id,
               'column_name' => $fieldRow->column_name // SQL table name
   );
@@ -127,7 +128,7 @@ function arms_util_cdmd_build($logger = ARMS_UTIL_LOG_WATCHDOG) {
       
       $cdmdGroup['id'] = $groupRow->id;
       
-      $sql = "select id, column_name, label, data_type, html_type, option_group_id, default_value, is_active " .
+      $sql = "select id, column_name, label, data_type, html_type, option_group_id, default_value, text_length, is_active " .
              "from {civicrm_custom_field} " .
              "where custom_group_id = %d " .
              "order by column_name";
