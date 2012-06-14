@@ -136,6 +136,7 @@ function arms_util_talend_getCustomFields($entity, $expectedHeaders) {
 /**
  * Translate custom fields list to a Talend XML
  *
+ * @param $customFields array($header => $fieldSpec); if a field is unavailable, then fieldSpec is substituted using ARMS_UTIL_TALEND_EXPORT_NULL_TYPE
  * @return SimpleXMLElement <schema>
  */
 function arms_util_talend_createCustomFieldsXml($customFields) {
