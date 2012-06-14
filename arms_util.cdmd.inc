@@ -86,6 +86,7 @@ function arms_util_cdmd_wrap_field($groupRow, $fieldRow, $cdmdGroup = FALSE) {
               '_group_name' => $groupName, // CDMD group name
               '_name'       => $fieldName, // CDMD field name
               '_table_name' => $groupRow->table_name, // CDMD group table
+              '_extends'    => $groupRow->extends, // CMD group join
               '_param'      => 'custom_' . $fieldRow->id, // Civi API field parameter
               '_is_active'  => ($groupRow->is_active && $fieldRow->is_active) ? 1 : 0,
               'id'          => $fieldRow->id, // Civi ID#
